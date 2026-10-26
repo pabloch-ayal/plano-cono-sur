@@ -32,7 +32,6 @@
       z-index: 1;
     }
 
-    /* Panel de búsqueda flotante */
     .search-panel {
       position: absolute;
       top: 12px;
@@ -72,28 +71,29 @@
       border-color: #1a73e8;
     }
 
-    /* Lista desplegable de sugerencias */
     .suggestions-box {
       position: absolute;
       top: 42px;
       left: 0;
       right: 0;
       background: white;
-      border: 1px solid #ddd;
+      border: 1px solid #ccc;
       border-radius: 8px;
-      max-height: 180px;
+      max-height: 240px;
       overflow-y: auto;
       z-index: 1100;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      box-shadow: 0 6px 20px rgba(0,0,0,0.25);
       display: none;
+      -webkit-overflow-scrolling: touch;
     }
 
     .suggestion-item {
-      padding: 9px 12px;
+      padding: 10px 12px;
       font-size: 13px;
-      border-bottom: 1px solid #eee;
+      border-bottom: 1px solid #f0f0f0;
       cursor: pointer;
-      color: #333;
+      color: #222;
+      line-height: 1.3;
     }
 
     .suggestion-item:active {
@@ -133,6 +133,12 @@
     .btn-mic.listening {
       background: #ea4335;
       color: white;
+      animation: pulse 1s infinite alternate;
+    }
+
+    @keyframes pulse {
+      from { transform: scale(1); }
+      to { transform: scale(1.08); }
     }
 
     .gps-btn {
@@ -171,11 +177,9 @@
 
   <div class="search-panel">
     <div class="inputs-row">
-      <input type="text" id="inputAsoc" placeholder="Asociación..." autocomplete="off">
+      <input type="text" id="inputAsoc" placeholder="Lugar, Asoc, Calle..." autocomplete="off">
       <input type="text" id="inputMz" placeholder="Mz" autocomplete="off">
       <input type="text" id="inputLote" placeholder="Lote" autocomplete="off">
-      
-      <!-- Contenedor dinámico de sugerencias -->
       <div id="suggestions" class="suggestions-box"></div>
     </div>
     <div class="actions-row">
@@ -204,7 +208,7 @@
 
     let datosGeoJSON = null;
     let marcador = null;
-    let listaAsociaciones = [];
+    let catalogoLugares = [];
 
     function normalizar(texto) {
       if (!texto) return '';
@@ -220,33 +224,67 @@
       return Math.hypot(c1[0] - c2[0], c1[1] - c2[1]);
     }
 
+    function extraerTextoFeature(f) {
+      if (!f || !f.properties) return '';
+      const p = f.properties;
+      return p.Text || p.text || p.Layer || p.layer || p.Nombre || p.nombre || p.TEXTSTRING || p.descrip || '';
+    }
+
+    function obtenerCoordenada(f) {
+      if (!f || !f.geometry) return null;
+      if (f.geometry.type === 'Point') return f.geometry.coordinates;
+      if (f.geometry.type === 'LineString') return f.geometry.coordinates[Math.floor(f.geometry.coordinates.length / 2)];
+      if (f.geometry.type === 'MultiLineString') return f.geometry.coordinates[0][0];
+      if (f.geometry.type === 'Polygon') return f.geometry.coordinates[0][0];
+      return f.geometry.coordinates;
+    }
+
     fetch('lotes_tacna.geojson')
       .then(r => r.json())
       .then(d => {
         datosGeoJSON = d;
-        extraerAsociaciones();
+        construirCatalogo();
       })
       .catch(e => console.error("Error al cargar GeoJSON:", e));
 
-    // Extrae y agrupa nombres largos que corresponden a asociaciones
-    function extraerAsociaciones() {
-      const setAsoc = new Map();
+    function construirCatalogo() {
+      const mapaLugares = new Map();
+
       datosGeoJSON.features.forEach(f => {
-        const txt = (f.properties?.Text || '').trim();
-        // Filtramos para considerar como asociación textos con más de 3 letras que no sean solo números
-        if (txt.length > 3 && !/^\d+$/.test(txt)) {
+        const txt = extraerTextoFeature(f).trim();
+        if (txt.length > 2 && !/^\d+$/.test(txt)) {
           const norm = normalizar(txt);
-          if (!setAsoc.has(norm)) {
-            setAsoc.set(norm, txt);
+          if (!mapaLugares.has(norm)) {
+            mapaLugares.set(norm, {
+              nombreOriginal: txt,
+              feature: f
+            });
           }
         }
       });
-      listaAsociaciones = Array.from(setAsoc.values());
+
+      catalogoLugares = Array.from(mapaLugares.values());
     }
 
-    // Lógica del autocompletado en tiempo real
     const inputAsoc = document.getElementById('inputAsoc');
     const boxSuggestions = document.getElementById('suggestions');
+
+    function expandirTerminos(busqueda) {
+      let terminos = [busqueda];
+      if (busqueda.includes('colegio') || busqueda.includes('escuela')) {
+        terminos.push('i e', 'ie', 'iep', 'educacion', 'colegio', 'escuela');
+      }
+      if (busqueda.includes('parque') || busqueda.includes('plaza')) {
+        terminos.push('parque', 'plaza', 'recreacion', 'losa');
+      }
+      if (busqueda.includes('posta') || busqueda.includes('hospital') || busqueda.includes('salud')) {
+        terminos.push('salud', 'posta', 'centro de salud');
+      }
+      if (busqueda.includes('calle') || busqueda.includes('av') || busqueda.includes('avenida') || busqueda.includes('pasaje')) {
+        terminos.push('calle', 'av', 'pje', 'jr', 'jiron');
+      }
+      return terminos;
+    }
 
     inputAsoc.addEventListener('input', () => {
       const val = normalizar(inputAsoc.value);
@@ -255,9 +293,12 @@
         return;
       }
 
-      const coincidencias = listaAsociaciones.filter(nombre => {
-        return normalizar(nombre).includes(val);
-      }).slice(0, 6); // Mostrar las 6 sugerencias más cercanas
+      const terminosValidos = expandirTerminos(val);
+
+      const coincidencias = catalogoLugares.filter(item => {
+        const norm = normalizar(item.nombreOriginal);
+        return terminosValidos.some(t => norm.includes(t));
+      }).slice(0, 35);
 
       if (coincidencias.length === 0) {
         boxSuggestions.style.display = 'none';
@@ -265,15 +306,21 @@
       }
 
       boxSuggestions.innerHTML = coincidencias.map(item => `
-        <div class="suggestion-item" onclick="seleccionarAsoc('${item.replace(/'/g, "\\'")}')">${item}</div>
+        <div class="suggestion-item" onclick="seleccionarLugar('${item.nombreOriginal.replace(/'/g, "\\'")}')">${item.nombreOriginal}</div>
       `).join('');
       boxSuggestions.style.display = 'block';
     });
 
-    function seleccionarAsoc(nombre) {
+    function seleccionarLugar(nombre) {
       inputAsoc.value = nombre;
       boxSuggestions.style.display = 'none';
-      document.getElementById('inputMz').focus();
+      const norm = normalizar(nombre);
+      const esDirecto = /colegio|i e|ie|iep|parque|plaza|comunal|mercado|calle|av|avenida|pje|jr/i.test(norm);
+      if (esDirecto) {
+        ejecutarBusqueda();
+      } else {
+        document.getElementById('inputMz').focus();
+      }
     }
 
     document.addEventListener('click', (e) => {
@@ -289,7 +336,7 @@
       const loteBuscado = normalizar(document.getElementById('inputLote').value);
 
       if (!asocBuscada && !mzBuscada && !loteBuscado) {
-        alert("Ingresa al menos un dato (Asociación, Mz o Lote)");
+        alert("Ingresa un lugar, calle, asociación, mz o lote");
         return;
       }
 
@@ -300,48 +347,88 @@
 
       const features = datosGeoJSON.features;
 
+      // 1. SOPORTE DE INTERSECCIÓN DE CALLES (Ejemplo: "calle loreto con raul porras")
+      if (asocBuscada.includes(' con ') || asocBuscada.includes(' y ') || asocBuscada.includes(' esquina ')) {
+        const partes = asocBuscada.split(/\s+(?:con|y|esquina)\s+/);
+        if (partes.length >= 2) {
+          const calle1 = partes[0].trim();
+          const calle2 = partes[1].trim();
+
+          const f1 = features.filter(f => normalizar(extraerTextoFeature(f)).includes(calle1));
+          const f2 = features.filter(f => normalizar(extraerTextoFeature(f)).includes(calle2));
+
+          if (f1.length > 0 && f2.length > 0) {
+            let menorD = Infinity;
+            let pInterseccion = null;
+
+            f1.forEach(a => {
+              const cA = obtenerCoordenada(a);
+              f2.forEach(b => {
+                const cB = obtenerCoordenada(b);
+                const d = distancia(cA, cB);
+                if (d < menorD) {
+                  menorD = d;
+                  pInterseccion = [(cA[1] + cB[1]) / 2, (cA[0] + cB[0]) / 2];
+                }
+              });
+            });
+
+            if (pInterseccion) {
+              const info = `<b>Intersección:</b><br>${document.getElementById('inputAsoc').value}<br>` +
+                           `<a class="btn-gmaps" href="https://www.google.com/maps/dir/?api=1&destination=${pInterseccion[0]},${pInterseccion[1]}" target="_blank">🗺️ ¿Cómo llegar? (Google Maps)</a>`;
+              ubicar(pInterseccion, info);
+              return;
+            }
+          }
+        }
+      }
+
+      // 2. BÚSQUEDA POR LUGAR / CALLE / ASOCIACIÓN
       if (asocBuscada) {
-        const palabras = asocBuscada.split(' ').filter(p => p.length > 2);
+        const terminos = expandirTerminos(asocBuscada);
         let zonas = features.filter(f => {
-          const txt = normalizar(f.properties?.Text || '');
-          return palabras.length > 0 ? palabras.every(p => txt.includes(p)) : txt.includes(asocBuscada);
+          const txt = normalizar(extraerTextoFeature(f));
+          return terminos.some(t => txt.includes(t));
         });
 
         if (zonas.length === 0) {
-          alert(`No se encontró la asociación: "${document.getElementById('inputAsoc').value}". Elige una de las sugerencias.`);
+          alert(`No se encontró "${document.getElementById('inputAsoc').value}". Selecciona una opción del autocompletado.`);
           return;
         }
 
-        const zonaAsoc = zonas[0];
-        const cAsoc = zonaAsoc.geometry.coordinates;
+        const coincidenciaExacta = zonas.find(f => normalizar(extraerTextoFeature(f)) === asocBuscada);
+        const zonaAsoc = coincidenciaExacta || zonas[0];
+        const cAsoc = obtenerCoordenada(zonaAsoc);
+
         let puntoRef = cAsoc;
-        let nombreAsoc = zonaAsoc.properties?.Text || asocBuscada;
+        let nombreAsoc = extraerTextoFeature(zonaAsoc) || asocBuscada;
 
         if (mzBuscada) {
           const manzanas = features.filter(f => {
-            const txt = normalizar(f.properties?.Text || '');
+            const txt = normalizar(extraerTextoFeature(f));
             const ok = txt === mzBuscada || txt === `mz ${mzBuscada}` || txt === `mza ${mzBuscada}` || txt === `m ${mzBuscada}`;
-            return ok && distancia(f.geometry.coordinates, cAsoc) < 0.02;
+            return ok && distancia(obtenerCoordenada(f), cAsoc) < 0.02;
           });
 
           if (manzanas.length > 0) {
-            manzanas.sort((a, b) => distancia(a.geometry.coordinates, cAsoc) - distancia(b.geometry.coordinates, cAsoc));
-            puntoRef = manzanas[0].geometry.coordinates;
+            manzanas.sort((a, b) => distancia(obtenerCoordenada(a), cAsoc) - distancia(obtenerCoordenada(b), cAsoc));
+            puntoRef = obtenerCoordenada(manzanas[0]);
           }
         }
 
         if (loteBuscado) {
           const lotes = features.filter(f => {
-            const txt = normalizar(f.properties?.Text || '');
+            const txt = normalizar(extraerTextoFeature(f));
             const ok = txt === loteBuscado || txt === `lt ${loteBuscado}` || txt === `lote ${loteBuscado}` || txt === loteBuscado.padStart(2, '0');
-            return ok && distancia(f.geometry.coordinates, puntoRef) < 0.02;
+            return ok && distancia(obtenerCoordenada(f), puntoRef) < 0.02;
           });
 
           if (lotes.length > 0) {
-            lotes.sort((a, b) => distancia(a.geometry.coordinates, puntoRef) - distancia(b.geometry.coordinates, puntoRef));
+            lotes.sort((a, b) => distancia(obtenerCoordenada(a), puntoRef) - distancia(obtenerCoordenada(b), puntoRef));
             const loteFinal = lotes[0];
-            const lat = loteFinal.geometry.coordinates[1];
-            const lng = loteFinal.geometry.coordinates[0];
+            const cLote = obtenerCoordenada(loteFinal);
+            const lat = cLote[1];
+            const lng = cLote[0];
             const info = `<b>${nombreAsoc}</b><br>` +
                          (mzBuscada ? `Mz: ${mzBuscada.toUpperCase()}<br>` : '') +
                          `Lote: ${loteBuscado}<br>` +
@@ -358,27 +445,29 @@
         const lat = puntoRef[1];
         const lng = puntoRef[0];
         const info = `<b>${nombreAsoc}</b>` + (mzBuscada ? `<br>Mz: ${mzBuscada.toUpperCase()}` : '') +
-                     `<br><a class="btn-gmaps" href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}" target="_blank">🗺️ Ir a esta zona</a>`;
+                     `<br><a class="btn-gmaps" href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}" target="_blank">🗺️ ¿Cómo llegar? (Google Maps)</a>`;
         ubicar([lat, lng], info);
         return;
       }
 
+      // 3. BÚSQUEDA SOLO MZ Y LOTE
       if (mzBuscada && loteBuscado) {
         const manzanas = features.filter(f => {
-          const txt = normalizar(f.properties?.Text || '');
+          const txt = normalizar(extraerTextoFeature(f));
           return txt === mzBuscada || txt === `mz ${mzBuscada}` || txt === `mza ${mzBuscada}`;
         });
 
         for (let mz of manzanas) {
-          const cMz = mz.geometry.coordinates;
+          const cMz = obtenerCoordenada(mz);
           const loteCercano = features.find(f => {
-            const txt = normalizar(f.properties?.Text || '');
-            return (txt === loteBuscado || txt === `lt ${loteBuscado}`) && distancia(f.geometry.coordinates, cMz) < 0.002;
+            const txt = normalizar(extraerTextoFeature(f));
+            return (txt === loteBuscado || txt === `lt ${loteBuscado}`) && distancia(obtenerCoordenada(f), cMz) < 0.002;
           });
 
           if (loteCercano) {
-            const lat = loteCercano.geometry.coordinates[1];
-            const lng = loteCercano.geometry.coordinates[0];
+            const cL = obtenerCoordenada(loteCercano);
+            const lat = cL[1];
+            const lng = cL[0];
             const info = `Mz: ${mzBuscada.toUpperCase()}<br>Lote: ${loteBuscado}<br><a class="btn-gmaps" href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}" target="_blank">🗺️ ¿Cómo llegar? (Google Maps)</a>`;
             ubicar([lat, lng], info);
             return;
@@ -388,19 +477,20 @@
 
       if (loteBuscado) {
         const res = features.find(f => {
-          const txt = normalizar(f.properties?.Text || '');
+          const txt = normalizar(extraerTextoFeature(f));
           return txt === loteBuscado || txt === `lt ${loteBuscado}`;
         });
 
         if (res) {
-          const lat = res.geometry.coordinates[1];
-          const lng = res.geometry.coordinates[0];
+          const c = obtenerCoordenada(res);
+          const lat = c[1];
+          const lng = c[0];
           ubicar([lat, lng], `Lote: ${loteBuscado}<br><a class="btn-gmaps" href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}" target="_blank">🗺️ ¿Cómo llegar? (Google Maps)</a>`);
           return;
         }
       }
 
-      alert("No se encontró ningún predio con esos datos exactos.");
+      alert("No se encontró ningún registro coincidente.");
     }
 
     function ubicar(latLng, textoHtml) {
@@ -414,26 +504,41 @@
       }).addTo(map);
 
       marcador.bindPopup(textoHtml).openPopup();
-      map.setView(latLng, 19);
+      map.setView(latLng, 18);
     }
 
-    function activarVoz() {
+    // VOZ CORREGIDA: Pide permisos primero al micrófono de Android
+    async function activarVoz() {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!SpeechRecognition) {
-        alert("Voz no compatible con este celular");
+        alert("El reconocimiento de voz no está habilitado en este dispositivo.");
         return;
+      }
+
+      try {
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+          await navigator.mediaDevices.getUserMedia({ audio: true });
+        }
+      } catch (err) {
+        console.warn("Aviso de micrófono:", err);
       }
 
       const rec = new SpeechRecognition();
       rec.lang = 'es-PE';
-      rec.start();
+      rec.interimResults = false;
+      rec.continuous = false;
 
       const btn = document.getElementById('btnMic');
       btn.classList.add('listening');
 
+      rec.onstart = () => {
+        btn.classList.add('listening');
+      };
+
       rec.onresult = (e) => {
-        const texto = e.results[0][0].transcript;
-        const norm = normalizar(texto);
+        btn.classList.remove('listening');
+        const transcript = e.results[0][0].transcript;
+        const norm = normalizar(transcript);
 
         const matchLote = norm.match(/(?:lote|lt)\s*(\d+)/i) || norm.match(/\b(\d+)\b/);
         if (matchLote) document.getElementById('inputLote').value = matchLote[1];
@@ -441,25 +546,28 @@
         const matchMz = norm.match(/(?:manzana|mza|mz)\s*([a-z0-9]+)/i);
         if (matchMz) document.getElementById('inputMz').value = matchMz[1].toUpperCase();
 
-        let resto = texto
+        let resto = transcript
           .replace(/(?:manzana|mza|mz)\s*[a-z0-9]+/gi, '')
           .replace(/(?:lote|lt)\s*\d+/gi, '')
           .trim();
-        if (resto.length > 2) {
+
+        if (resto.length > 1) {
           document.getElementById('inputAsoc').value = resto;
         }
 
         ejecutarBusqueda();
       };
 
-      rec.onspeechend = () => {
+      rec.onerror = (err) => {
         btn.classList.remove('listening');
-        rec.stop();
+        alert("No se pudo captar el audio o falta conceder el permiso en los Ajustes del celular.");
       };
 
-      rec.onerror = () => {
+      rec.onend = () => {
         btn.classList.remove('listening');
       };
+
+      rec.start();
     }
 
     function obtenerUbicacion() {
