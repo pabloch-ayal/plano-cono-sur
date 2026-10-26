@@ -106,7 +106,7 @@
       color: white;
     }
 
-    /* Botón GPS */
+    /* Botón GPS flotante */
     .gps-btn {
       position: absolute;
       bottom: 30px;
@@ -123,6 +123,20 @@
       border: none;
       cursor: pointer;
       font-size: 22px;
+    }
+
+    /* Estilo del botón de Google Maps dentro del globo */
+    .btn-gmaps {
+      display: block;
+      margin-top: 8px;
+      background: #34a853;
+      color: white !important;
+      text-align: center;
+      text-decoration: none;
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-weight: bold;
+      font-size: 13px;
     }
   </style>
 </head>
@@ -147,7 +161,6 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    // Iniciar Leaflet
     const map = L.map('map', { 
       zoomControl: false,
       attributionControl: false 
@@ -157,7 +170,6 @@
       maxZoom: 21
     }).addTo(map);
 
-    // Ajustar mapa a pantalla completa tras cargar Android WebView
     setTimeout(() => {
       map.invalidateSize();
     }, 400);
@@ -219,12 +231,19 @@
                 }
               });
 
-              ubicar([mejorLote.geometry.coordinates[1], mejorLote.geometry.coordinates[0]], `<b>${zona.properties.Text}</b><br>Lote: ${lote}`);
+              const cMejor = mejorLote.geometry.coordinates;
+              const lat = cMejor[1];
+              const lng = cMejor[0];
+              const texto = `<b>${zona.properties.Text}</b><br>Lote: ${lote}<br><a class="btn-gmaps" href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}" target="_blank">🗺️ ¿Cómo llegar? (Google Maps)</a>`;
+              ubicar([lat, lng], texto);
               return;
             }
           }
 
-          ubicar([cZona[1], cZona[0]], `<b>Zona:</b> ${zona.properties.Text}`);
+          const latZ = cZona[1];
+          const lngZ = cZona[0];
+          const textoZona = `<b>Zona:</b> ${zona.properties.Text}<br><a class="btn-gmaps" href="https://www.google.com/maps/dir/?api=1&destination=${latZ},${lngZ}" target="_blank">🗺️ Ir a esta zona</a>`;
+          ubicar([latZ, lngZ], textoZona);
           return;
         }
       }
@@ -237,7 +256,10 @@
 
         if (res) {
           const c = res.geometry.coordinates;
-          ubicar([c[1], c[0]], `Lote: ${lote}`);
+          const lat = c[1];
+          const lng = c[0];
+          const textoLote = `<b>Lote:</b> ${lote}<br><a class="btn-gmaps" href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}" target="_blank">🗺️ ¿Cómo llegar? (Google Maps)</a>`;
+          ubicar([lat, lng], textoLote);
           return;
         }
       }
@@ -245,7 +267,7 @@
       alert("No se encontró coincidencia.");
     }
 
-    function ubicar(latLng, texto) {
+    function ubicar(latLng, textoHtml) {
       if (marcador) map.removeLayer(marcador);
       marcador = L.circleMarker(latLng, {
         radius: 12,
@@ -255,7 +277,7 @@
         fillOpacity: 0.95
       }).addTo(map);
 
-      marcador.bindPopup(texto).openPopup();
+      marcador.bindPopup(textoHtml).openPopup();
       map.setView(latLng, 19);
     }
 
