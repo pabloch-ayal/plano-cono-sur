@@ -2,26 +2,47 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Catastro Gregorio Albarracin</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Plano Cono Sur</title>
+  
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body, html, #map { height: 100%; width: 100%; overflow: hidden; font-family: sans-serif; }
+    * { 
+      box-sizing: border-box; 
+      margin: 0; 
+      padding: 0; 
+      -webkit-tap-highlight-color: transparent;
+    }
+    
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      position: fixed;
+    }
 
-    /* Contenedor flotante superior con 3 casillas */
+    #map {
+      width: 100vw;
+      height: 100vh;
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 1;
+    }
+
+    /* Panel de búsqueda adaptado para móviles */
     .search-panel {
       position: absolute;
-      top: 10px;
-      left: 50%;
-      transform: translateX(-50%);
+      top: 12px;
+      left: 10px;
+      right: 10px;
       z-index: 1000;
-      width: 95%;
-      max-width: 550px;
-      background: white;
+      background: rgba(255, 255, 255, 0.96);
       padding: 10px;
-      border-radius: 18px;
-      box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+      border-radius: 14px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.3);
       display: flex;
       flex-direction: column;
       gap: 8px;
@@ -30,25 +51,30 @@
     .inputs-row {
       display: flex;
       gap: 6px;
+      width: 100%;
     }
 
     .inputs-row input {
-      border: 1px solid #ccc;
+      border: 1px solid #c2c2c2;
       border-radius: 8px;
-      padding: 8px;
-      font-size: 14px;
+      padding: 8px 6px;
+      font-size: 13px;
       outline: none;
+      min-width: 0;
     }
 
     #inputAsoc { flex: 2; }
     #inputMz { flex: 1; }
     #inputLote { flex: 1; }
 
-    .inputs-row input:focus { border-color: #1a73e8; }
+    .inputs-row input:focus {
+      border-color: #1a73e8;
+    }
 
     .actions-row {
       display: flex;
       gap: 8px;
+      width: 100%;
     }
 
     .btn-search {
@@ -57,7 +83,7 @@
       color: white;
       border: none;
       border-radius: 8px;
-      padding: 9px;
+      padding: 10px;
       font-weight: bold;
       font-size: 14px;
       cursor: pointer;
@@ -67,8 +93,11 @@
       background: #f1f3f4;
       border: 1px solid #ccc;
       border-radius: 8px;
-      padding: 0 14px;
+      width: 44px;
       font-size: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       cursor: pointer;
     }
 
@@ -77,17 +106,17 @@
       color: white;
     }
 
-    /* Botón GPS flotante abajo */
+    /* Botón GPS */
     .gps-btn {
       position: absolute;
-      bottom: 25px;
-      right: 20px;
+      bottom: 30px;
+      right: 16px;
       z-index: 1000;
       background: white;
       width: 48px;
       height: 48px;
       border-radius: 50%;
-      box-shadow: 0 3px 10px rgba(0,0,0,0.3);
+      box-shadow: 0 3px 12px rgba(0,0,0,0.35);
       display: flex;
       justify-content: center;
       align-items: center;
@@ -99,12 +128,12 @@
 </head>
 <body>
 
-  <!-- Panel de búsqueda con 3 casillas -->
+  <!-- Panel superior fijo -->
   <div class="search-panel">
     <div class="inputs-row">
-      <input type="text" id="inputAsoc" placeholder="Asoc. / Sector (Ej. Jaime Yoshiyama)" autocomplete="off">
-      <input type="text" id="inputMz" placeholder="Mz (Ej. A2)" autocomplete="off">
-      <input type="text" id="inputLote" placeholder="Lote (Ej. 32)" autocomplete="off">
+      <input type="text" id="inputAsoc" placeholder="Asociación" autocomplete="off">
+      <input type="text" id="inputMz" placeholder="Mz" autocomplete="off">
+      <input type="text" id="inputLote" placeholder="Lote" autocomplete="off">
     </div>
     <div class="actions-row">
       <button class="btn-mic" id="btnMic" onclick="activarVoz()" title="Dictar dirección">🎤</button>
@@ -112,48 +141,56 @@
     </div>
   </div>
 
-  <!-- Botón GPS -->
   <button class="gps-btn" onclick="obtenerUbicacion()" title="Mi Ubicación">🎯</button>
 
   <div id="map"></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    // Inicializar mapa en Gregorio Albarracín
-    const map = L.map('map', { zoomControl: false }).setView([-18.055, -70.265], 14);
+    // Iniciar Leaflet
+    const map = L.map('map', { 
+      zoomControl: false,
+      attributionControl: false 
+    }).setView([-18.055, -70.265], 14);
 
-    // Mapa satelital Google
-    L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', { maxZoom: 21 }).addTo(map);
+    L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+      maxZoom: 21
+    }).addTo(map);
+
+    // Ajustar mapa a pantalla completa tras cargar Android WebView
+    setTimeout(() => {
+      map.invalidateSize();
+    }, 400);
+
+    window.addEventListener('resize', () => {
+      map.invalidateSize();
+    });
 
     let datosGeoJSON = null;
     let marcador = null;
 
-    // Cargar archivo
     fetch('lotes_tacna.geojson')
       .then(r => r.json())
       .then(d => {
         datosGeoJSON = d;
-        console.log("Catastro cargado con éxito");
       })
       .catch(e => console.error(e));
 
-    // Función de búsqueda combinada
     function ejecutarBusqueda() {
       const asoc = document.getElementById('inputAsoc').value.trim().toLowerCase();
       const mz = document.getElementById('inputMz').value.trim().toLowerCase();
       const lote = document.getElementById('inputLote').value.trim().toLowerCase();
 
       if (!asoc && !mz && !lote) {
-        alert("Ingresa al menos un dato para buscar (Asociación, Manzana o Lote)");
+        alert("Ingresa al menos un dato (Asociación, Mz o Lote)");
         return;
       }
 
       if (!datosGeoJSON) {
-        alert("Cargando datos catastrales...");
+        alert("Cargando datos del plano...");
         return;
       }
 
-      // Si busca por Asociación primero
       if (asoc) {
         const zona = datosGeoJSON.features.find(f => {
           const txt = (f.properties?.Text || '').toLowerCase();
@@ -162,40 +199,36 @@
 
         if (zona) {
           const cZona = zona.geometry.coordinates;
-          
-          // Si además puso Lote, buscamos el lote más cercano a esa Asociación
+
           if (lote) {
-            const lotesCoincidentes = datosGeoJSON.features.filter(f => {
+            const lotes = datosGeoJSON.features.filter(f => {
               const txt = (f.properties?.Text || '').trim().toLowerCase();
               return txt === lote;
             });
 
-            if (lotesCoincidentes.length > 0) {
-              // Calcular el lote más cercano a la etiqueta de la Asociación
-              let mejorLote = lotesCoincidentes[0];
-              let menorDistancia = Infinity;
+            if (lotes.length > 0) {
+              let mejorLote = lotes[0];
+              let menorDist = Infinity;
 
-              lotesCoincidentes.forEach(l => {
+              lotes.forEach(l => {
                 const cL = l.geometry.coordinates;
-                const dist = Math.hypot(cL[0] - cZona[0], cL[1] - cZona[1]);
-                if (dist < menorDistancia) {
-                  menorDistancia = dist;
+                const d = Math.hypot(cL[0] - cZona[0], cL[1] - cZona[1]);
+                if (d < menorDist) {
+                  menorDist = d;
                   mejorLote = l;
                 }
               });
 
-              ubicarEnMapa(mejorLote.geometry.coordinates, `<b>${zona.properties.Text}</b><br>Lote: ${lote}`);
+              ubicar([mejorLote.geometry.coordinates[1], mejorLote.geometry.coordinates[0]], `<b>${zona.properties.Text}</b><br>Lote: ${lote}`);
               return;
             }
           }
 
-          // Si solo puso Asociación, va a la zona
-          ubicarEnMapa(cZona, `<b>Zona:</b> ${zona.properties.Text}`);
+          ubicar([cZona[1], cZona[0]], `<b>Zona:</b> ${zona.properties.Text}`);
           return;
         }
       }
 
-      // Búsqueda directa por Lote si no especificó Asociación
       if (lote) {
         const res = datosGeoJSON.features.find(f => {
           const txt = (f.properties?.Text || '').trim().toLowerCase();
@@ -203,17 +236,18 @@
         });
 
         if (res) {
-          ubicarEnMapa(res.geometry.coordinates, `Lote: ${lote}`);
+          const c = res.geometry.coordinates;
+          ubicar([c[1], c[0]], `Lote: ${lote}`);
           return;
         }
       }
 
-      alert("No se encontró coincidencia con los datos ingresados.");
+      alert("No se encontró coincidencia.");
     }
 
-    function ubicarEnMapa(coords, textoPopup) {
+    function ubicar(latLng, texto) {
       if (marcador) map.removeLayer(marcador);
-      marcador = L.circleMarker([coords[1], coords[0]], {
+      marcador = L.circleMarker(latLng, {
         radius: 12,
         fillColor: "#00e5ff",
         color: "#ffffff",
@@ -221,15 +255,14 @@
         fillOpacity: 0.95
       }).addTo(map);
 
-      marcador.bindPopup(textoPopup).openPopup();
-      map.setView([coords[1], coords[0]], 19);
+      marcador.bindPopup(texto).openPopup();
+      map.setView(latLng, 19);
     }
 
-    // Buscador por voz
     function activarVoz() {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!SpeechRecognition) {
-        alert("El reconocimiento por voz no está disponible en este dispositivo.");
+        alert("Voz no compatible con este celular");
         return;
       }
 
@@ -242,13 +275,10 @@
 
       rec.onresult = (e) => {
         const texto = e.results[0][0].transcript.toLowerCase();
-        console.log("Dictado:", texto);
 
-        // Detectar Lote (ejemplo: "lote 14")
         const matchLote = texto.match(/lote\s*(\d+)/i) || texto.match(/\d+/);
         if (matchLote) document.getElementById('inputLote').value = matchLote[1] || matchLote[0];
 
-        // Detectar Manzana (ejemplo: "manzana b" o "mz a2")
         const matchMz = texto.match(/(?:manzana|mz)\s*([a-z0-9]+)/i);
         if (matchMz) document.getElementById('inputMz').value = matchMz[1].toUpperCase();
 
@@ -265,7 +295,6 @@
       };
     }
 
-    // GPS en tiempo real
     function obtenerUbicacion() {
       if (!navigator.geolocation) {
         alert("GPS no soportado");
@@ -275,7 +304,7 @@
         const latLng = [pos.coords.latitude, pos.coords.longitude];
         L.circleMarker(latLng, { radius: 8, fillColor: "#1a73e8", color: "#fff", weight: 2, fillOpacity: 1 }).addTo(map);
         map.setView(latLng, 18);
-      }, () => alert("No se pudo obtener la señal GPS"));
+      }, () => alert("Permiso de GPS no concedido"));
     }
   </script>
 </body>
