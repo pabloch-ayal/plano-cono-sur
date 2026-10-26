@@ -197,23 +197,18 @@
       <div id="suggestions" class="suggestions-box"></div>
     </div>
     <div class="actions-row">
-      <!-- BOTÓN X PARA LIMPIAR TODO -->
       <button class="btn-clear" onclick="limpiarTodo()" title="Borrar búsqueda">✕</button>
-      <button class="btn-search" onclick="ejecutarBusqueda()">Buscar Predio</button>
+      <button class="btn-search" id="btnBuscar" onclick="ejecutarBusqueda()">Buscar Predio</button>
     </div>
   </div>
 
-  <!-- BOTÓN CAMBIAR ENTRE VISTA SATELITAL Y PLANO CALLEJERO -->
-  <button class="layer-toggle-btn" onclick="alternarMapa()" title="Cambiar vista de mapa">🗺️</button>
-  
-  <!-- BOTÓN GPS MI UBICACIÓN -->
+  <button class="layer-toggle-btn" onclick="alternarMapa()" title="Alternar entre Satélite y Plano">🗺️</button>
   <button class="gps-btn" onclick="obtenerUbicacion()" title="Mi Ubicación">🎯</button>
 
   <div id="map"></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    // CAPAS DE MAPA: Satelital y Callejero
     const capaSatelital = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', { maxZoom: 21 });
     const capaPlano = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
 
@@ -363,7 +358,6 @@
       }
     });
 
-    // FUNCIÓN DEL BOTÓN X: LIMPIA TODOS LOS CAMPOS Y EL MARCADOR
     function limpiarTodo() {
       document.getElementById('inputAsoc').value = '';
       document.getElementById('inputMz').value = '';
@@ -376,9 +370,39 @@
       document.getElementById('inputAsoc').focus();
     }
 
-    function ejecutarBusqueda() {
+    // BÚSQUEDA SECUNDARIA EN LA RED / GOOGLE MAPS PARA ASOCIACIONES Y LUGARES DE TACNA
+    async function buscarEnLinea(consultaOriginal) {
+      const btn = document.getElementById('btnBuscar');
+      btn.innerText = "Buscando en Tacna...";
+      try {
+        const q = encodeURIComponent(`${consultaOriginal}, Tacna, Peru`);
+        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${q}&limit=1`;
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (data && data.length > 0) {
+          const lat = parseFloat(data[0].lat);
+          const lon = parseFloat(data[0].lon);
+          const nombreEncontrado = data[0].display_name.split(',')[0];
+          const info = `<b>${nombreEncontrado}</b><br><small style="color:#d93025;">(Ubicación vía Satélite - Tacna)</small><br>` +
+                       `<a class="btn-gmaps" href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}" target="_blank">🗺️ ¿Cómo llegar? (Google Maps)</a>`;
+          ubicar([lat, lon], info);
+        } else {
+          const linkDirectoGmaps = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(consultaOriginal + ' Tacna')}`;
+          alert(`No se encontró "${consultaOriginal}" en el plano local ni en la base satelital. Abriendo Google Maps:`);
+          window.open(linkDirectoGmaps, '_system');
+        }
+      } catch (err) {
+        alert(`No se encontró "${consultaOriginal}" en el catastro local.`);
+      } finally {
+        btn.innerText = "Buscar Predio";
+      }
+    }
+
+    async function ejecutarBusqueda() {
       boxSuggestions.style.display = 'none';
-      const asocBuscada = normalizar(document.getElementById('inputAsoc').value);
+      const textoOriginal = document.getElementById('inputAsoc').value.trim();
+      const asocBuscada = normalizar(textoOriginal);
       const mzBuscada = normalizar(document.getElementById('inputMz').value);
       const loteBuscado = normalizar(document.getElementById('inputLote').value);
 
@@ -394,7 +418,7 @@
 
       const features = datosGeoJSON.features;
 
-      // 1. SOPORTE DE INTERSECCIÓN DE CALLES
+      // 1. INTERSECCIÓN DE CALLES
       if (asocBuscada.includes(' con ') || asocBuscada.includes(' y ') || asocBuscada.includes(' esquina ')) {
         const partes = asocBuscada.split(/\s+(?:con|y|esquina)\s+/);
         if (partes.length >= 2) {
@@ -421,7 +445,7 @@
             });
 
             if (pInterseccion) {
-              const info = `<b>Intersección:</b><br>${document.getElementById('inputAsoc').value}<br>` +
+              const info = `<b>Intersección:</b><br>${textoOriginal}<br>` +
                            `<a class="btn-gmaps" href="https://www.google.com/maps/dir/?api=1&destination=${pInterseccion[0]},${pInterseccion[1]}" target="_blank">🗺️ ¿Cómo llegar? (Google Maps)</a>`;
               ubicar(pInterseccion, info);
               return;
@@ -438,8 +462,9 @@
           return terminos.some(t => txt.includes(t));
         });
 
+        // SI NO ESTÁ EN EL PLANO DE CONO SUR, CONSULTA EN LÍNEA A TODO TACNA
         if (zonas.length === 0) {
-          alert(`No se encontró "${document.getElementById('inputAsoc').value}". Selecciona una opción del autocompletado.`);
+          await buscarEnLinea(textoOriginal);
           return;
         }
 
