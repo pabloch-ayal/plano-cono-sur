@@ -63,9 +63,9 @@
       min-width: 0;
     }
 
-    #inputAsoc { flex: 2; }
-    #inputMz { flex: 1; }
-    #inputLote { flex: 1; }
+    #inputAsoc { flex: 2.2; }
+    #inputMz { flex: 0.9; }
+    #inputLote { flex: 0.9; }
 
     .inputs-row input:focus {
       border-color: #1a73e8;
@@ -118,27 +118,23 @@
       cursor: pointer;
     }
 
-    .btn-mic {
+    .btn-clear {
       background: #f1f3f4;
       border: 1px solid #ccc;
+      color: #555;
       border-radius: 8px;
       width: 44px;
       font-size: 18px;
+      font-weight: bold;
       display: flex;
       align-items: center;
       justify-content: center;
       cursor: pointer;
     }
 
-    .btn-mic.listening {
-      background: #ea4335;
-      color: white;
-      animation: pulse 1s infinite alternate;
-    }
-
-    @keyframes pulse {
-      from { transform: scale(1); }
-      to { transform: scale(1.08); }
+    .btn-clear:active {
+      background: #e0e0e0;
+      color: #d93025;
     }
 
     .gps-btn {
@@ -157,6 +153,24 @@
       border: none;
       cursor: pointer;
       font-size: 22px;
+    }
+
+    .layer-toggle-btn {
+      position: absolute;
+      bottom: 88px;
+      right: 16px;
+      z-index: 1000;
+      background: white;
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      box-shadow: 0 3px 12px rgba(0,0,0,0.35);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      border: none;
+      cursor: pointer;
+      font-size: 20px;
     }
 
     .btn-gmaps {
@@ -183,25 +197,45 @@
       <div id="suggestions" class="suggestions-box"></div>
     </div>
     <div class="actions-row">
-      <button class="btn-mic" id="btnMic" onclick="activarVoz()" title="Dictar dirección">🎤</button>
+      <!-- BOTÓN X PARA LIMPIAR TODO -->
+      <button class="btn-clear" onclick="limpiarTodo()" title="Borrar búsqueda">✕</button>
       <button class="btn-search" onclick="ejecutarBusqueda()">Buscar Predio</button>
     </div>
   </div>
 
+  <!-- BOTÓN CAMBIAR ENTRE VISTA SATELITAL Y PLANO CALLEJERO -->
+  <button class="layer-toggle-btn" onclick="alternarMapa()" title="Cambiar vista de mapa">🗺️</button>
+  
+  <!-- BOTÓN GPS MI UBICACIÓN -->
   <button class="gps-btn" onclick="obtenerUbicacion()" title="Mi Ubicación">🎯</button>
 
   <div id="map"></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
+    // CAPAS DE MAPA: Satelital y Callejero
+    const capaSatelital = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', { maxZoom: 21 });
+    const capaPlano = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
+
+    let mapaActual = 'satelite';
+
     const map = L.map('map', { 
       zoomControl: false,
-      attributionControl: false 
+      attributionControl: false,
+      layers: [capaSatelital]
     }).setView([-18.055, -70.265], 14);
 
-    L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
-      maxZoom: 21
-    }).addTo(map);
+    function alternarMapa() {
+      if (mapaActual === 'satelite') {
+        map.removeLayer(capaSatelital);
+        map.addLayer(capaPlano);
+        mapaActual = 'plano';
+      } else {
+        map.removeLayer(capaPlano);
+        map.addLayer(capaSatelital);
+        mapaActual = 'satelite';
+      }
+    }
 
     setTimeout(() => { map.invalidateSize(); }, 400);
     window.addEventListener('resize', () => { map.invalidateSize(); });
@@ -329,6 +363,19 @@
       }
     });
 
+    // FUNCIÓN DEL BOTÓN X: LIMPIA TODOS LOS CAMPOS Y EL MARCADOR
+    function limpiarTodo() {
+      document.getElementById('inputAsoc').value = '';
+      document.getElementById('inputMz').value = '';
+      document.getElementById('inputLote').value = '';
+      boxSuggestions.style.display = 'none';
+      if (marcador) {
+        map.removeLayer(marcador);
+        marcador = null;
+      }
+      document.getElementById('inputAsoc').focus();
+    }
+
     function ejecutarBusqueda() {
       boxSuggestions.style.display = 'none';
       const asocBuscada = normalizar(document.getElementById('inputAsoc').value);
@@ -347,7 +394,7 @@
 
       const features = datosGeoJSON.features;
 
-      // 1. SOPORTE DE INTERSECCIÓN DE CALLES (Ejemplo: "calle loreto con raul porras")
+      // 1. SOPORTE DE INTERSECCIÓN DE CALLES
       if (asocBuscada.includes(' con ') || asocBuscada.includes(' y ') || asocBuscada.includes(' esquina ')) {
         const partes = asocBuscada.split(/\s+(?:con|y|esquina)\s+/);
         if (partes.length >= 2) {
@@ -505,69 +552,6 @@
 
       marcador.bindPopup(textoHtml).openPopup();
       map.setView(latLng, 18);
-    }
-
-    // VOZ CORREGIDA: Pide permisos primero al micrófono de Android
-    async function activarVoz() {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (!SpeechRecognition) {
-        alert("El reconocimiento de voz no está habilitado en este dispositivo.");
-        return;
-      }
-
-      try {
-        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-          await navigator.mediaDevices.getUserMedia({ audio: true });
-        }
-      } catch (err) {
-        console.warn("Aviso de micrófono:", err);
-      }
-
-      const rec = new SpeechRecognition();
-      rec.lang = 'es-PE';
-      rec.interimResults = false;
-      rec.continuous = false;
-
-      const btn = document.getElementById('btnMic');
-      btn.classList.add('listening');
-
-      rec.onstart = () => {
-        btn.classList.add('listening');
-      };
-
-      rec.onresult = (e) => {
-        btn.classList.remove('listening');
-        const transcript = e.results[0][0].transcript;
-        const norm = normalizar(transcript);
-
-        const matchLote = norm.match(/(?:lote|lt)\s*(\d+)/i) || norm.match(/\b(\d+)\b/);
-        if (matchLote) document.getElementById('inputLote').value = matchLote[1];
-
-        const matchMz = norm.match(/(?:manzana|mza|mz)\s*([a-z0-9]+)/i);
-        if (matchMz) document.getElementById('inputMz').value = matchMz[1].toUpperCase();
-
-        let resto = transcript
-          .replace(/(?:manzana|mza|mz)\s*[a-z0-9]+/gi, '')
-          .replace(/(?:lote|lt)\s*\d+/gi, '')
-          .trim();
-
-        if (resto.length > 1) {
-          document.getElementById('inputAsoc').value = resto;
-        }
-
-        ejecutarBusqueda();
-      };
-
-      rec.onerror = (err) => {
-        btn.classList.remove('listening');
-        alert("No se pudo captar el audio o falta conceder el permiso en los Ajustes del celular.");
-      };
-
-      rec.onend = () => {
-        btn.classList.remove('listening');
-      };
-
-      rec.start();
     }
 
     function obtenerUbicacion() {
