@@ -32,17 +32,17 @@
       z-index: 1;
     }
 
-    /* Panel de búsqueda adaptado para móviles */
+    /* Panel de búsqueda flotante */
     .search-panel {
       position: absolute;
       top: 12px;
       left: 10px;
       right: 10px;
       z-index: 1000;
-      background: rgba(255, 255, 255, 0.96);
+      background: rgba(255, 255, 255, 0.98);
       padding: 10px;
       border-radius: 14px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+      box-shadow: 0 4px 18px rgba(0,0,0,0.3);
       display: flex;
       flex-direction: column;
       gap: 8px;
@@ -52,6 +52,7 @@
       display: flex;
       gap: 6px;
       width: 100%;
+      position: relative;
     }
 
     .inputs-row input {
@@ -69,6 +70,34 @@
 
     .inputs-row input:focus {
       border-color: #1a73e8;
+    }
+
+    /* Lista desplegable de sugerencias */
+    .suggestions-box {
+      position: absolute;
+      top: 42px;
+      left: 0;
+      right: 0;
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      max-height: 180px;
+      overflow-y: auto;
+      z-index: 1100;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      display: none;
+    }
+
+    .suggestion-item {
+      padding: 9px 12px;
+      font-size: 13px;
+      border-bottom: 1px solid #eee;
+      cursor: pointer;
+      color: #333;
+    }
+
+    .suggestion-item:active {
+      background: #e8f0fe;
     }
 
     .actions-row {
@@ -106,7 +135,6 @@
       color: white;
     }
 
-    /* Botón GPS flotante */
     .gps-btn {
       position: absolute;
       bottom: 30px;
@@ -125,7 +153,6 @@
       font-size: 22px;
     }
 
-    /* Estilo del botón de Google Maps dentro del globo */
     .btn-gmaps {
       display: block;
       margin-top: 8px;
@@ -142,12 +169,14 @@
 </head>
 <body>
 
-  <!-- Panel superior fijo -->
   <div class="search-panel">
     <div class="inputs-row">
-      <input type="text" id="inputAsoc" placeholder="Asociación" autocomplete="off">
+      <input type="text" id="inputAsoc" placeholder="Asociación..." autocomplete="off">
       <input type="text" id="inputMz" placeholder="Mz" autocomplete="off">
       <input type="text" id="inputLote" placeholder="Lote" autocomplete="off">
+      
+      <!-- Contenedor dinámico de sugerencias -->
+      <div id="suggestions" class="suggestions-box"></div>
     </div>
     <div class="actions-row">
       <button class="btn-mic" id="btnMic" onclick="activarVoz()" title="Dictar dirección">🎤</button>
@@ -170,101 +199,208 @@
       maxZoom: 21
     }).addTo(map);
 
-    setTimeout(() => {
-      map.invalidateSize();
-    }, 400);
-
-    window.addEventListener('resize', () => {
-      map.invalidateSize();
-    });
+    setTimeout(() => { map.invalidateSize(); }, 400);
+    window.addEventListener('resize', () => { map.invalidateSize(); });
 
     let datosGeoJSON = null;
     let marcador = null;
+    let listaAsociaciones = [];
+
+    function normalizar(texto) {
+      if (!texto) return '';
+      return texto.toString()
+        .toLowerCase()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    function distancia(c1, c2) {
+      return Math.hypot(c1[0] - c2[0], c1[1] - c2[1]);
+    }
 
     fetch('lotes_tacna.geojson')
       .then(r => r.json())
       .then(d => {
         datosGeoJSON = d;
+        extraerAsociaciones();
       })
-      .catch(e => console.error(e));
+      .catch(e => console.error("Error al cargar GeoJSON:", e));
+
+    // Extrae y agrupa nombres largos que corresponden a asociaciones
+    function extraerAsociaciones() {
+      const setAsoc = new Map();
+      datosGeoJSON.features.forEach(f => {
+        const txt = (f.properties?.Text || '').trim();
+        // Filtramos para considerar como asociación textos con más de 3 letras que no sean solo números
+        if (txt.length > 3 && !/^\d+$/.test(txt)) {
+          const norm = normalizar(txt);
+          if (!setAsoc.has(norm)) {
+            setAsoc.set(norm, txt);
+          }
+        }
+      });
+      listaAsociaciones = Array.from(setAsoc.values());
+    }
+
+    // Lógica del autocompletado en tiempo real
+    const inputAsoc = document.getElementById('inputAsoc');
+    const boxSuggestions = document.getElementById('suggestions');
+
+    inputAsoc.addEventListener('input', () => {
+      const val = normalizar(inputAsoc.value);
+      if (val.length < 2) {
+        boxSuggestions.style.display = 'none';
+        return;
+      }
+
+      const coincidencias = listaAsociaciones.filter(nombre => {
+        return normalizar(nombre).includes(val);
+      }).slice(0, 6); // Mostrar las 6 sugerencias más cercanas
+
+      if (coincidencias.length === 0) {
+        boxSuggestions.style.display = 'none';
+        return;
+      }
+
+      boxSuggestions.innerHTML = coincidencias.map(item => `
+        <div class="suggestion-item" onclick="seleccionarAsoc('${item.replace(/'/g, "\\'")}')">${item}</div>
+      `).join('');
+      boxSuggestions.style.display = 'block';
+    });
+
+    function seleccionarAsoc(nombre) {
+      inputAsoc.value = nombre;
+      boxSuggestions.style.display = 'none';
+      document.getElementById('inputMz').focus();
+    }
+
+    document.addEventListener('click', (e) => {
+      if (!inputAsoc.contains(e.target) && !boxSuggestions.contains(e.target)) {
+        boxSuggestions.style.display = 'none';
+      }
+    });
 
     function ejecutarBusqueda() {
-      const asoc = document.getElementById('inputAsoc').value.trim().toLowerCase();
-      const mz = document.getElementById('inputMz').value.trim().toLowerCase();
-      const lote = document.getElementById('inputLote').value.trim().toLowerCase();
+      boxSuggestions.style.display = 'none';
+      const asocBuscada = normalizar(document.getElementById('inputAsoc').value);
+      const mzBuscada = normalizar(document.getElementById('inputMz').value);
+      const loteBuscado = normalizar(document.getElementById('inputLote').value);
 
-      if (!asoc && !mz && !lote) {
+      if (!asocBuscada && !mzBuscada && !loteBuscado) {
         alert("Ingresa al menos un dato (Asociación, Mz o Lote)");
         return;
       }
 
-      if (!datosGeoJSON) {
+      if (!datosGeoJSON || !datosGeoJSON.features) {
         alert("Cargando datos del plano...");
         return;
       }
 
-      if (asoc) {
-        const zona = datosGeoJSON.features.find(f => {
-          const txt = (f.properties?.Text || '').toLowerCase();
-          return txt.includes(asoc);
+      const features = datosGeoJSON.features;
+
+      if (asocBuscada) {
+        const palabras = asocBuscada.split(' ').filter(p => p.length > 2);
+        let zonas = features.filter(f => {
+          const txt = normalizar(f.properties?.Text || '');
+          return palabras.length > 0 ? palabras.every(p => txt.includes(p)) : txt.includes(asocBuscada);
         });
 
-        if (zona) {
-          const cZona = zona.geometry.coordinates;
-
-          if (lote) {
-            const lotes = datosGeoJSON.features.filter(f => {
-              const txt = (f.properties?.Text || '').trim().toLowerCase();
-              return txt === lote;
-            });
-
-            if (lotes.length > 0) {
-              let mejorLote = lotes[0];
-              let menorDist = Infinity;
-
-              lotes.forEach(l => {
-                const cL = l.geometry.coordinates;
-                const d = Math.hypot(cL[0] - cZona[0], cL[1] - cZona[1]);
-                if (d < menorDist) {
-                  menorDist = d;
-                  mejorLote = l;
-                }
-              });
-
-              const cMejor = mejorLote.geometry.coordinates;
-              const lat = cMejor[1];
-              const lng = cMejor[0];
-              const texto = `<b>${zona.properties.Text}</b><br>Lote: ${lote}<br><a class="btn-gmaps" href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}" target="_blank">🗺️ ¿Cómo llegar? (Google Maps)</a>`;
-              ubicar([lat, lng], texto);
-              return;
-            }
-          }
-
-          const latZ = cZona[1];
-          const lngZ = cZona[0];
-          const textoZona = `<b>Zona:</b> ${zona.properties.Text}<br><a class="btn-gmaps" href="https://www.google.com/maps/dir/?api=1&destination=${latZ},${lngZ}" target="_blank">🗺️ Ir a esta zona</a>`;
-          ubicar([latZ, lngZ], textoZona);
+        if (zonas.length === 0) {
+          alert(`No se encontró la asociación: "${document.getElementById('inputAsoc').value}". Elige una de las sugerencias.`);
           return;
+        }
+
+        const zonaAsoc = zonas[0];
+        const cAsoc = zonaAsoc.geometry.coordinates;
+        let puntoRef = cAsoc;
+        let nombreAsoc = zonaAsoc.properties?.Text || asocBuscada;
+
+        if (mzBuscada) {
+          const manzanas = features.filter(f => {
+            const txt = normalizar(f.properties?.Text || '');
+            const ok = txt === mzBuscada || txt === `mz ${mzBuscada}` || txt === `mza ${mzBuscada}` || txt === `m ${mzBuscada}`;
+            return ok && distancia(f.geometry.coordinates, cAsoc) < 0.02;
+          });
+
+          if (manzanas.length > 0) {
+            manzanas.sort((a, b) => distancia(a.geometry.coordinates, cAsoc) - distancia(b.geometry.coordinates, cAsoc));
+            puntoRef = manzanas[0].geometry.coordinates;
+          }
+        }
+
+        if (loteBuscado) {
+          const lotes = features.filter(f => {
+            const txt = normalizar(f.properties?.Text || '');
+            const ok = txt === loteBuscado || txt === `lt ${loteBuscado}` || txt === `lote ${loteBuscado}` || txt === loteBuscado.padStart(2, '0');
+            return ok && distancia(f.geometry.coordinates, puntoRef) < 0.02;
+          });
+
+          if (lotes.length > 0) {
+            lotes.sort((a, b) => distancia(a.geometry.coordinates, puntoRef) - distancia(b.geometry.coordinates, puntoRef));
+            const loteFinal = lotes[0];
+            const lat = loteFinal.geometry.coordinates[1];
+            const lng = loteFinal.geometry.coordinates[0];
+            const info = `<b>${nombreAsoc}</b><br>` +
+                         (mzBuscada ? `Mz: ${mzBuscada.toUpperCase()}<br>` : '') +
+                         `Lote: ${loteBuscado}<br>` +
+                         `<a class="btn-gmaps" href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}" target="_blank">🗺️ ¿Cómo llegar? (Google Maps)</a>`;
+            ubicar([lat, lng], info);
+            return;
+          } else {
+            alert(`Se ubicó "${nombreAsoc}", pero no se encontró el Lote ${loteBuscado} dentro de ella.`);
+            ubicar([puntoRef[1], puntoRef[0]], `<b>${nombreAsoc}</b><br>Zona aproximada`);
+            return;
+          }
+        }
+
+        const lat = puntoRef[1];
+        const lng = puntoRef[0];
+        const info = `<b>${nombreAsoc}</b>` + (mzBuscada ? `<br>Mz: ${mzBuscada.toUpperCase()}` : '') +
+                     `<br><a class="btn-gmaps" href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}" target="_blank">🗺️ Ir a esta zona</a>`;
+        ubicar([lat, lng], info);
+        return;
+      }
+
+      if (mzBuscada && loteBuscado) {
+        const manzanas = features.filter(f => {
+          const txt = normalizar(f.properties?.Text || '');
+          return txt === mzBuscada || txt === `mz ${mzBuscada}` || txt === `mza ${mzBuscada}`;
+        });
+
+        for (let mz of manzanas) {
+          const cMz = mz.geometry.coordinates;
+          const loteCercano = features.find(f => {
+            const txt = normalizar(f.properties?.Text || '');
+            return (txt === loteBuscado || txt === `lt ${loteBuscado}`) && distancia(f.geometry.coordinates, cMz) < 0.002;
+          });
+
+          if (loteCercano) {
+            const lat = loteCercano.geometry.coordinates[1];
+            const lng = loteCercano.geometry.coordinates[0];
+            const info = `Mz: ${mzBuscada.toUpperCase()}<br>Lote: ${loteBuscado}<br><a class="btn-gmaps" href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}" target="_blank">🗺️ ¿Cómo llegar? (Google Maps)</a>`;
+            ubicar([lat, lng], info);
+            return;
+          }
         }
       }
 
-      if (lote) {
-        const res = datosGeoJSON.features.find(f => {
-          const txt = (f.properties?.Text || '').trim().toLowerCase();
-          return txt === lote;
+      if (loteBuscado) {
+        const res = features.find(f => {
+          const txt = normalizar(f.properties?.Text || '');
+          return txt === loteBuscado || txt === `lt ${loteBuscado}`;
         });
 
         if (res) {
-          const c = res.geometry.coordinates;
-          const lat = c[1];
-          const lng = c[0];
-          const textoLote = `<b>Lote:</b> ${lote}<br><a class="btn-gmaps" href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}" target="_blank">🗺️ ¿Cómo llegar? (Google Maps)</a>`;
-          ubicar([lat, lng], textoLote);
+          const lat = res.geometry.coordinates[1];
+          const lng = res.geometry.coordinates[0];
+          ubicar([lat, lng], `Lote: ${loteBuscado}<br><a class="btn-gmaps" href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}" target="_blank">🗺️ ¿Cómo llegar? (Google Maps)</a>`);
           return;
         }
       }
 
-      alert("No se encontró coincidencia.");
+      alert("No se encontró ningún predio con esos datos exactos.");
     }
 
     function ubicar(latLng, textoHtml) {
@@ -296,13 +432,22 @@
       btn.classList.add('listening');
 
       rec.onresult = (e) => {
-        const texto = e.results[0][0].transcript.toLowerCase();
+        const texto = e.results[0][0].transcript;
+        const norm = normalizar(texto);
 
-        const matchLote = texto.match(/lote\s*(\d+)/i) || texto.match(/\d+/);
-        if (matchLote) document.getElementById('inputLote').value = matchLote[1] || matchLote[0];
+        const matchLote = norm.match(/(?:lote|lt)\s*(\d+)/i) || norm.match(/\b(\d+)\b/);
+        if (matchLote) document.getElementById('inputLote').value = matchLote[1];
 
-        const matchMz = texto.match(/(?:manzana|mz)\s*([a-z0-9]+)/i);
+        const matchMz = norm.match(/(?:manzana|mza|mz)\s*([a-z0-9]+)/i);
         if (matchMz) document.getElementById('inputMz').value = matchMz[1].toUpperCase();
+
+        let resto = texto
+          .replace(/(?:manzana|mza|mz)\s*[a-z0-9]+/gi, '')
+          .replace(/(?:lote|lt)\s*\d+/gi, '')
+          .trim();
+        if (resto.length > 2) {
+          document.getElementById('inputAsoc').value = resto;
+        }
 
         ejecutarBusqueda();
       };
