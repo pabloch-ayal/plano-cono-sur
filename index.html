@@ -235,3 +235,610 @@
       border: 1px dashed #4b5563;
       padding: 10px;
       border-radius: 8px;
+      margin-bottom: 16px;
+    }
+
+    .id-label {
+      font-size: 11px;
+      color: #9ca3af;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .id-code {
+      font-size: 20px;
+      font-weight: bold;
+      color: #34d399;
+      letter-spacing: 2px;
+      margin-top: 2px;
+    }
+
+    .btn-whatsapp {
+      background: #25d366;
+      color: white;
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 12px;
+      border-radius: 8px;
+      font-weight: bold;
+      font-size: 14px;
+      margin-bottom: 16px;
+    }
+
+    .input-key {
+      width: 100%;
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid #4b5563;
+      background: #111827;
+      color: #ffffff;
+      font-size: 16px;
+      text-align: center;
+      letter-spacing: 2px;
+      outline: none;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+    }
+
+    .btn-activate {
+      width: 100%;
+      background: #2563eb;
+      color: white;
+      border: none;
+      padding: 12px;
+      border-radius: 8px;
+      font-weight: bold;
+      font-size: 14px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- PANTALLA DE LICENCIA -->
+  <div id="lockScreen" style="display: none;">
+    <div class="lock-box">
+      <div style="font-size: 40px; margin-bottom: 8px;">🔐</div>
+      <div class="lock-title">Plano Cono Sur</div>
+      <div class="lock-desc">Se requiere licencia activa para utilizar este dispositivo.</div>
+
+      <div class="id-container">
+        <div class="id-label">Tu ID de Dispositivo:</div>
+        <div class="id-code" id="deviceCode">TAC-XXXX</div>
+      </div>
+
+      <!-- Reemplaza 51999999999 por tu número con código de Perú -->
+      <a class="btn-whatsapp" id="btnWsp" href="#" target="_system">
+        <span>📲</span> Solicitar Activación por WhatsApp
+      </a>
+
+      <input type="text" id="inputLicense" class="input-key" placeholder="CLAVE DE ACTIVACIÓN" autocomplete="off">
+      <button class="btn-activate" onclick="validarLicencia()">Activar Aplicación</button>
+    </div>
+  </div>
+
+  <div class="search-panel">
+    <div class="inputs-row">
+      <input type="text" id="inputAsoc" placeholder="Lugar, Asoc, Calle, Parque..." autocomplete="off">
+      <input type="text" id="inputMz" placeholder="Mz" autocomplete="off">
+      <input type="text" id="inputLote" placeholder="Lote" autocomplete="off">
+      <div id="suggestions" class="suggestions-box"></div>
+    </div>
+    <div class="actions-row">
+      <button class="btn-clear" onclick="limpiarTodo()" title="Borrar búsqueda">✕</button>
+      <button class="btn-search" id="btnBuscar" onclick="ejecutarBusqueda()">Buscar Predio</button>
+    </div>
+  </div>
+
+  <button class="layer-toggle-btn" onclick="alternarMapa()" title="Alternar entre Satélite y Plano">🗺️</button>
+  <button class="gps-btn" onclick="obtenerUbicacion()" title="Mi Ubicación">🎯</button>
+
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    // ==========================================
+    // SISTEMA DE LICENCIA ÚNICA POR DISPOSITIVO
+    // ==========================================
+    const NUMERO_WHATSAPP = "51939525004"; // Cambia este número por tu WhatsApp real
+
+    function generarFirma(id) {
+      let hash = 5381;
+      const str = "CONOSUR_SALT_2026_" + id;
+      for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) + hash) + str.charCodeAt(i);
+        hash = hash & 0xFFFFFFF;
+      }
+      return "ACT-" + Math.abs(hash).toString(36).toUpperCase().padStart(6, '0');
+    }
+
+    function inicializarLicencia() {
+      let devId = localStorage.getItem('plano_device_id');
+      if (!devId) {
+        const randomPart = Math.floor(1000 + Math.random() * 9000);
+        devId = "TAC-" + randomPart;
+        localStorage.setItem('plano_device_id', devId);
+      }
+
+      const licGuardada = localStorage.getItem('plano_active_key');
+      const claveCorrecta = generarFirma(devId);
+
+      if (licGuardada && licGuardada.trim() === claveCorrecta) {
+        return true;
+      }
+
+      document.getElementById('deviceCode').innerText = devId;
+      const mensajeWsp = encodeURIComponent(`Hola, deseo activar el APK Plano Cono Sur en mi celular. Mi ID de dispositivo es: ${devId}`);
+      document.getElementById('btnWsp').href = `https://api.whatsapp.com/send?phone=${NUMERO_WHATSAPP}&text=${mensajeWsp}`;
+      document.getElementById('lockScreen').style.display = 'flex';
+      return false;
+    }
+
+    function validarLicencia() {
+      const devId = localStorage.getItem('plano_device_id');
+      const claveIngresada = document.getElementById('inputLicense').value.trim().toUpperCase();
+      const claveEsperada = generarFirma(devId);
+
+      if (claveIngresada === claveEsperada) {
+        localStorage.setItem('plano_active_key', claveIngresada);
+        document.getElementById('lockScreen').style.display = 'none';
+        alert("¡Aplicación activada con éxito!");
+      } else {
+        alert("Clave de activación incorrecta para este dispositivo.");
+      }
+    }
+
+    inicializarLicencia();
+
+    // ==========================================
+    // MAPA Y BÚSQUEDA CATASTRAL
+    // ==========================================
+    const capaSatelital = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', { maxZoom: 21 });
+    const capaPlano = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
+
+    let mapaActual = 'satelite';
+
+    const map = L.map('map', { 
+      zoomControl: false,
+      attributionControl: false,
+      layers: [capaSatelital]
+    }).setView([-18.055, -70.265], 14);
+
+    function alternarMapa() {
+      if (mapaActual === 'satelite') {
+        map.removeLayer(capaSatelital);
+        map.addLayer(capaPlano);
+        mapaActual = 'plano';
+      } else {
+        map.removeLayer(capaPlano);
+        map.addLayer(capaSatelital);
+        mapaActual = 'satelite';
+      }
+    }
+
+    setTimeout(() => { map.invalidateSize(); }, 400);
+    window.addEventListener('resize', () => { map.invalidateSize(); });
+
+    let datosGeoJSON = null;
+    let marcador = null;
+    let catalogoLugares = [];
+
+    function normalizar(texto) {
+      if (!texto) return '';
+      let t = texto.toString()
+        .toLowerCase()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      t = t.replace(/\b(asoc|asociacion|asoc viv|asoc de viv|asociacion de vivienda)\b/g, 'asoc')
+           .replace(/\b(junta vecinal|jv|junta vec)\b/g, 'jv')
+           .replace(/\b(colegio|institucion educativa|escuela|iep|i e)\b/g, 'ie')
+           .replace(/\b(posta|posta medica|puesto de salud|centro de salud|hospital|minsa)\b/g, 'salud')
+           .replace(/\b(comisaria|comisaria pnp|puesto policial|pnp)\b/g, 'comisaria')
+           .replace(/\b(parque|plazuela|alameda|losa|campo deportivo)\b/g, 'parque')
+           .replace(/\b(avenida|avda)\b/g, 'av')
+           .replace(/\b(calle|clle)\b/g, 'ca')
+           .replace(/\b(pasaje|psje)\b/g, 'pje')
+           .replace(/\b(jiron)\b/g, 'jr')
+           .replace(/\b(santa)\b/g, 'sta')
+           .replace(/\b(santo|san)\b/g, 'san')
+           .replace(/\b(senor|sr)\b/g, 'senor')
+           .replace(/\b(virgen)\b/g, 'v')
+           .replace(/\s+/g, " ")
+           .trim();
+
+      return t;
+    }
+
+    function distancia(c1, c2) {
+      return Math.hypot(c1[0] - c2[0], c1[1] - c2[1]);
+    }
+
+    function extraerTextoFeature(f) {
+      if (!f || !f.properties) return '';
+      const p = f.properties;
+      return p.Text || p.text || p.Layer || p.layer || p.Nombre || p.nombre || p.TEXTSTRING || p.descrip || '';
+    }
+
+    function obtenerCoordenada(f) {
+      if (!f || !f.geometry) return null;
+      if (f.geometry.type === 'Point') return f.geometry.coordinates;
+      if (f.geometry.type === 'LineString') return f.geometry.coordinates[Math.floor(f.geometry.coordinates.length / 2)];
+      if (f.geometry.type === 'MultiLineString') return f.geometry.coordinates[0][0];
+      if (f.geometry.type === 'Polygon') return f.geometry.coordinates[0][0];
+      return f.geometry.coordinates;
+    }
+
+    fetch('lotes_tacna.geojson')
+      .then(r => r.json())
+      .then(d => {
+        datosGeoJSON = d;
+        construirCatalogo();
+      })
+      .catch(e => console.error("Error al cargar GeoJSON:", e));
+
+    function construirCatalogo() {
+      const mapaLugares = new Map();
+
+      datosGeoJSON.features.forEach(f => {
+        const txt = extraerTextoFeature(f).trim();
+        if (txt.length > 2 && !/^\d+$/.test(txt)) {
+          const norm = normalizar(txt);
+          if (!mapaLugares.has(norm)) {
+            mapaLugares.set(norm, {
+              nombreOriginal: txt,
+              feature: f
+            });
+          }
+        }
+      });
+
+      catalogoLugares = Array.from(mapaLugares.values());
+    }
+
+    const inputAsoc = document.getElementById('inputAsoc');
+    const boxSuggestions = document.getElementById('suggestions');
+
+    function extraerTerminosBusqueda(texto) {
+      const conectores = ['de', 'del', 'la', 'las', 'el', 'los', 'y', 'en', 'con', 'a', 'asoc', 'jv', 'ca', 'av', 'pje', 'jr'];
+      return normalizar(texto)
+        .split(' ')
+        .filter(w => w.length > 1 && !conectores.includes(w));
+    }
+
+    function coincideFlexible(textoDestino, palabrasBuscadas) {
+      if (!palabrasBuscadas || palabrasBuscadas.length === 0) return true;
+      const partesDestino = textoDestino.split(' ');
+
+      return palabrasBuscadas.every(pb => {
+        if (textoDestino.includes(pb)) return true;
+        if (pb.length >= 4) {
+          const raiz = pb.substring(0, 4);
+          const inicial = pb[0];
+          return partesDestino.some(pd => pd.startsWith(raiz) || pd === inicial);
+        }
+        return false;
+      });
+    }
+
+    inputAsoc.addEventListener('input', () => {
+      const val = inputAsoc.value.trim();
+      const palabras = extraerTerminosBusqueda(val);
+      if (palabras.length === 0) {
+        boxSuggestions.style.display = 'none';
+        return;
+      }
+
+      const coincidencias = catalogoLugares.filter(item => {
+        const norm = normalizar(item.nombreOriginal);
+        return coincideFlexible(norm, palabras);
+      }).slice(0, 35);
+
+      if (coincidencias.length === 0) {
+        boxSuggestions.style.display = 'none';
+        return;
+      }
+
+      boxSuggestions.innerHTML = coincidencias.map(item => `
+        <div class="suggestion-item" onclick="seleccionarLugar('${item.nombreOriginal.replace(/'/g, "\\'")}')">${item.nombreOriginal}</div>
+      `).join('');
+      boxSuggestions.style.display = 'block';
+    });
+
+    function seleccionarLugar(nombre) {
+      inputAsoc.value = nombre;
+      boxSuggestions.style.display = 'none';
+      const norm = normalizar(nombre);
+      const esDirecto = /\b(ie|parque|plaza|comunal|mercado|ca|av|pje|jr|salud|comisaria)\b/.test(norm);
+      if (esDirecto) {
+        ejecutarBusqueda();
+      } else {
+        document.getElementById('inputMz').focus();
+      }
+    }
+
+    document.addEventListener('click', (e) => {
+      if (!inputAsoc.contains(e.target) && !boxSuggestions.contains(e.target)) {
+        boxSuggestions.style.display = 'none';
+      }
+    });
+
+    function limpiarTodo() {
+      document.getElementById('inputAsoc').value = '';
+      document.getElementById('inputMz').value = '';
+      document.getElementById('inputLote').value = '';
+      boxSuggestions.style.display = 'none';
+      if (marcador) {
+        map.removeLayer(marcador);
+        marcador = null;
+      }
+      document.getElementById('inputAsoc').focus();
+    }
+
+    async function buscarEnLinea(consultaOriginal) {
+      const btn = document.getElementById('btnBuscar');
+      btn.innerText = "Buscando...";
+      
+      let textoLimpio = consultaOriginal
+        .replace(/local\s+multiusos/gi, '')
+        .replace(/asociacion\s+de\s+vivienda|asoc\s+viv|asociacion|asoc/gi, '')
+        .replace(/junta\s+vecinal|jv/gi, '')
+        .replace(/colegio|institucion\s+educativa|i\.?e\.?/gi, '')
+        .trim();
+
+      if (!textoLimpio) textoLimpio = consultaOriginal;
+
+      try {
+        const viewbox = "-70.35,-17.90,-70.15,-18.15";
+        const q = encodeURIComponent(`${textoLimpio}, Coronel Gregorio Albarracin Lanchipa, Tacna, Peru`);
+        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${q}&viewbox=${viewbox}&bounded=1&limit=1`;
+        
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (data && data.length > 0) {
+          const lat = parseFloat(data[0].lat);
+          const lon = parseFloat(data[0].lon);
+          const nombreEncontrado = data[0].display_name.split(',')[0];
+          const info = `<b>${nombreEncontrado}</b><br><small style="color:#d93025;">(Ubicación satelital - Tacna)</small><br>` +
+                       `<a class="btn-gmaps" href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}" target="_blank">🗺️ ¿Cómo llegar? (Google Maps)</a>`;
+          ubicar([lat, lon], info);
+        } else {
+          const linkDirectoGmaps = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(consultaOriginal + ' Gregorio Albarracin Tacna')}`;
+          window.open(linkDirectoGmaps, '_system');
+        }
+      } catch (err) {
+        const linkDirectoGmaps = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(consultaOriginal + ' Gregorio Albarracin Tacna')}`;
+        window.open(linkDirectoGmaps, '_system');
+      } finally {
+        btn.innerText = "Buscar Predio";
+      }
+    }
+
+    async function ejecutarBusqueda() {
+      boxSuggestions.style.display = 'none';
+      const textoOriginal = document.getElementById('inputAsoc').value.trim();
+      const asocBuscada = normalizar(textoOriginal);
+      const mzBuscada = normalizar(document.getElementById('inputMz').value);
+      const loteBuscado = normalizar(document.getElementById('inputLote').value);
+
+      if (!asocBuscada && !mzBuscada && !loteBuscado) {
+        alert("Ingresa un lugar, calle, asociación, mz o lote");
+        return;
+      }
+
+      if (!datosGeoJSON || !datosGeoJSON.features) {
+        alert("Cargando datos del plano...");
+        return;
+      }
+
+      const features = datosGeoJSON.features;
+
+      // 1. INTERSECCIÓN DE CALLES
+      if (asocBuscada.includes(' con ') || asocBuscada.includes(' y ') || asocBuscada.includes(' esquina ')) {
+        const partes = asocBuscada.split(/\s+(?:con|y|esquina)\s+/);
+        if (partes.length >= 2) {
+          const calle1 = partes[0].trim();
+          const calle2 = partes[1].trim();
+
+          const f1 = features.filter(f => normalizar(extraerTextoFeature(f)).includes(calle1));
+          const f2 = features.filter(f => normalizar(extraerTextoFeature(f)).includes(calle2));
+
+          if (f1.length > 0 && f2.length > 0) {
+            let menorD = Infinity;
+            let pInterseccion = null;
+
+            f1.forEach(a => {
+              const cA = obtenerCoordenada(a);
+              f2.forEach(b => {
+                const cB = obtenerCoordenada(b);
+                const d = distancia(cA, cB);
+                if (d < menorD) {
+                  menorD = d;
+                  pInterseccion = [(cA[1] + cB[1]) / 2, (cA[0] + cB[0]) / 2];
+                }
+              });
+            });
+
+            if (pInterseccion) {
+              const info = `<b>Intersección:</b><br>${textoOriginal}<br>` +
+                           `<a class="btn-gmaps" href="https://www.google.com/maps/dir/?api=1&destination=${pInterseccion[0]},${pInterseccion[1]}" target="_blank">🗺️ ¿Cómo llegar? (Google Maps)</a>`;
+              ubicar(pInterseccion, info);
+              return;
+            }
+          }
+        }
+      }
+
+      // 2. BÚSQUEDA POR LUGAR / EQUIPAMIENTO / ASOCIACIÓN
+      if (asocBuscada) {
+        const palabrasClave = extraerTerminosBusqueda(textoOriginal);
+
+        const buscaEspacioPublico = /\b(plaza|parque)\b/.test(asocBuscada);
+        const buscaEducacion = /\bie\b/.test(asocBuscada);
+
+        let zonas = features.filter(f => {
+          const txt = normalizar(extraerTextoFeature(f));
+          if (!txt) return false;
+
+          if (buscaEspacioPublico && (txt.startsWith('pje') || txt.startsWith('ca ') || txt.startsWith('av ') || txt.startsWith('jr '))) {
+            return false;
+          }
+
+          if (buscaEducacion && (txt.startsWith('ca ') || txt.startsWith('pje'))) {
+            return false;
+          }
+
+          if (palabrasClave.length > 0 && (txt === 'plaza' || txt === 'parque' || txt === 'losa')) {
+            return false;
+          }
+
+          return coincideFlexible(txt, palabrasClave);
+        });
+
+        if (zonas.length === 0) {
+          await buscarEnLinea(textoOriginal);
+          return;
+        }
+
+        zonas.sort((a, b) => {
+          const txtA = normalizar(extraerTextoFeature(a));
+          const txtB = normalizar(extraerTextoFeature(b));
+          if (buscaEspacioPublico) {
+            const esPlazaA = txtA.includes('plaza') || txtA.includes('parque');
+            const esPlazaB = txtB.includes('plaza') || txtB.includes('parque');
+            if (esPlazaA && !esPlazaB) return -1;
+            if (!esPlazaA && esPlazaB) return 1;
+          }
+          return txtA.length - txtB.length;
+        });
+
+        const zonaAsoc = zonas[0];
+        const cAsoc = obtenerCoordenada(zonaAsoc);
+
+        let puntoRef = cAsoc;
+        let nombreAsoc = extraerTextoFeature(zonaAsoc) || textoOriginal;
+
+        if (mzBuscada) {
+          const manzanas = features.filter(f => {
+            const txt = normalizar(extraerTextoFeature(f));
+            const ok = txt === mzBuscada || txt === `mz ${mzBuscada}` || txt === `mza ${mzBuscada}` || txt === `m ${mzBuscada}`;
+            return ok && distancia(obtenerCoordenada(f), cAsoc) < 0.02;
+          });
+
+          if (manzanas.length > 0) {
+            manzanas.sort((a, b) => distancia(obtenerCoordenada(a), cAsoc) - distancia(obtenerCoordenada(b), cAsoc));
+            puntoRef = obtenerCoordenada(manzanas[0]);
+          }
+        }
+
+        if (loteBuscado) {
+          const lotes = features.filter(f => {
+            const txt = normalizar(extraerTextoFeature(f));
+            const ok = txt === loteBuscado || txt === `lt ${loteBuscado}` || txt === `lote ${loteBuscado}` || txt === loteBuscado.padStart(2, '0');
+            return ok && distancia(obtenerCoordenada(f), puntoRef) < 0.02;
+          });
+
+          if (lotes.length > 0) {
+            lotes.sort((a, b) => distancia(obtenerCoordenada(a), puntoRef) - distancia(obtenerCoordenada(b), puntoRef));
+            const loteFinal = lotes[0];
+            const cLote = obtenerCoordenada(loteFinal);
+            const lat = cLote[1];
+            const lng = cLote[0];
+            const info = `<b>${nombreAsoc}</b><br>` +
+                         (mzBuscada ? `Mz: ${mzBuscada.toUpperCase()}<br>` : '') +
+                         `Lote: ${loteBuscado}<br>` +
+                         `<a class="btn-gmaps" href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}" target="_blank">🗺️ ¿Cómo llegar? (Google Maps)</a>`;
+            ubicar([lat, lng], info);
+            return;
+          } else {
+            alert(`Se ubicó "${nombreAsoc}", pero no se encontró el Lote ${loteBuscado} dentro de ella.`);
+            ubicar([puntoRef[1], puntoRef[0]], `<b>${nombreAsoc}</b><br>Zona aproximada`);
+            return;
+          }
+        }
+
+        const lat = puntoRef[1];
+        const lng = puntoRef[0];
+        const info = `<b>${nombreAsoc}</b>` + (mzBuscada ? `<br>Mz: ${mzBuscada.toUpperCase()}` : '') +
+                     `<br><a class="btn-gmaps" href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}" target="_blank">🗺️ ¿Cómo llegar? (Google Maps)</a>`;
+        ubicar([lat, lng], info);
+        return;
+      }
+
+      // 3. BÚSQUEDA SOLO MZ Y LOTE
+      if (mzBuscada && loteBuscado) {
+        const manzanas = features.filter(f => {
+          const txt = normalizar(extraerTextoFeature(f));
+          return txt === mzBuscada || txt === `mz ${mzBuscada}` || txt === `mza ${mzBuscada}`;
+        });
+
+        for (let mz of manzanas) {
+          const cMz = obtenerCoordenada(mz);
+          const loteCercano = features.find(f => {
+            const txt = normalizar(extraerTextoFeature(f));
+            return (txt === loteBuscado || txt === `lt ${loteBuscado}`) && distancia(obtenerCoordenada(f), cMz) < 0.002;
+          });
+
+          if (loteCercano) {
+            const cL = obtenerCoordenada(loteCercano);
+            const lat = cL[1];
+            const lng = cL[0];
+            const info = `Mz: ${mzBuscada.toUpperCase()}<br>Lote: ${loteBuscado}<br><a class="btn-gmaps" href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}" target="_blank">🗺️ ¿Cómo llegar? (Google Maps)</a>`;
+            ubicar([lat, lng], info);
+            return;
+          }
+        }
+      }
+
+      if (loteBuscado) {
+        const res = features.find(f => {
+          const txt = normalizar(extraerTextoFeature(f));
+          return txt === loteBuscado || txt === `lt ${loteBuscado}`;
+        });
+
+        if (res) {
+          const c = obtenerCoordenada(res);
+          const lat = c[1];
+          const lng = c[0];
+          ubicar([lat, lng], `Lote: ${loteBuscado}<br><a class="btn-gmaps" href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}" target="_blank">🗺️ ¿Cómo llegar? (Google Maps)</a>`);
+          return;
+        }
+      }
+
+      alert("No se encontró ningún registro coincidente.");
+    }
+
+    function ubicar(latLng, textoHtml) {
+      if (marcador) map.removeLayer(marcador);
+      marcador = L.circleMarker(latLng, {
+        radius: 12,
+        fillColor: "#00e5ff",
+        color: "#ffffff",
+        weight: 3,
+        fillOpacity: 0.95
+      }).addTo(map);
+
+      marcador.bindPopup(textoHtml).openPopup();
+      map.setView(latLng, 18);
+    }
+
+    function obtenerUbicacion() {
+      if (!navigator.geolocation) {
+        alert("GPS no soportado");
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(pos => {
+        const latLng = [pos.coords.latitude, pos.coords.longitude];
+        L.circleMarker(latLng, { radius: 8, fillColor: "#1a73e8", color: "#fff", weight: 2, fillOpacity: 1 }).addTo(map);
+        map.setView(latLng, 18);
+      }, () => alert("Permiso de GPS no concedido"));
+    }
+  </script>
+</body>
+</html>
