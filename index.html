@@ -194,7 +194,7 @@
 
   <div class="search-panel">
     <div class="inputs-row">
-      <input type="text" id="inputAsoc" placeholder="Lugar, Asoc, Calle..." autocomplete="off">
+      <input type="text" id="inputAsoc" placeholder="Lugar, Asoc, Calle, Parque..." autocomplete="off">
       <input type="text" id="inputMz" placeholder="Mz" autocomplete="off">
       <input type="text" id="inputLote" placeholder="Lote" autocomplete="off">
       <div id="suggestions" class="suggestions-box"></div>
@@ -301,21 +301,16 @@
     const inputAsoc = document.getElementById('inputAsoc');
     const boxSuggestions = document.getElementById('suggestions');
 
-    function expandirTerminos(busqueda) {
-      let terminos = [busqueda];
-      if (busqueda.includes('colegio') || busqueda.includes('escuela')) {
-        terminos.push('i e', 'ie', 'iep', 'educacion', 'colegio', 'escuela');
-      }
-      if (busqueda.includes('parque') || busqueda.includes('plaza')) {
-        terminos.push('parque', 'plaza', 'recreacion', 'losa');
-      }
-      if (busqueda.includes('posta') || busqueda.includes('hospital') || busqueda.includes('salud')) {
-        terminos.push('salud', 'posta', 'centro de salud');
-      }
-      if (busqueda.includes('calle') || busqueda.includes('av') || busqueda.includes('avenida') || busqueda.includes('pasaje')) {
-        terminos.push('calle', 'av', 'pje', 'jr', 'jiron');
-      }
-      return terminos;
+    // Desglosa prefijos genéricos de equipamiento urbano
+    function limpiarPrefijoGenerico(texto) {
+      return texto
+        .replace(/^(plaza|parque|plazuela|alameda|losa|campo deportivo)\s+/i, '')
+        .replace(/^(colegio|escuela|institucion educativa|i\s*e|i\s*e\s*p)\s+/i, '')
+        .replace(/^(comisaria|comisaria pnp|pnp|puesto policial)\s+/i, '')
+        .replace(/^(centro de salud|puesto de salud|posta medica|posta|hospital)\s+/i, '')
+        .replace(/^(asociacion de vivienda|asoc viv|asociacion|asoc|junta vecinal|jv)\s+/i, '')
+        .replace(/^(mercado|complejo|local comunal|local multiusos|parroquia|iglesia)\s+/i, '')
+        .trim();
     }
 
     inputAsoc.addEventListener('input', () => {
@@ -325,11 +320,12 @@
         return;
       }
 
-      const terminosValidos = expandirTerminos(val);
+      const valLimpio = limpiarPrefijoGenerico(val);
+      const palabras = (valLimpio || val).split(' ').filter(p => p.length > 0);
 
       const coincidencias = catalogoLugares.filter(item => {
         const norm = normalizar(item.nombreOriginal);
-        return terminosValidos.some(t => norm.includes(t));
+        return palabras.every(p => norm.includes(p));
       }).slice(0, 35);
 
       if (coincidencias.length === 0) {
@@ -347,7 +343,7 @@
       inputAsoc.value = nombre;
       boxSuggestions.style.display = 'none';
       const norm = normalizar(nombre);
-      const esDirecto = /colegio|i e|ie|iep|parque|plaza|comunal|mercado|calle|av|avenida|pje|jr/i.test(norm);
+      const esDirecto = /colegio|i e|ie|iep|parque|plaza|comunal|mercado|calle|av|avenida|pje|jr|salud|posta|comisaria/i.test(norm);
       if (esDirecto) {
         ejecutarBusqueda();
       } else {
@@ -373,7 +369,6 @@
       document.getElementById('inputAsoc').focus();
     }
 
-    // BÚSQUEDA SECUNDARIA OPTIMIZADA
     async function buscarEnLinea(consultaOriginal) {
       const btn = document.getElementById('btnBuscar');
       btn.innerText = "Buscando...";
@@ -466,25 +461,38 @@
         }
       }
 
-      // 2. BÚSQUEDA POR LUGAR / CALLE / ASOCIACIÓN
+      // 2. BÚSQUEDA POR LUGAR / CALLE / EQUIPAMIENTO / ASOCIACIÓN
       if (asocBuscada) {
-        const terminos = expandirTerminos(asocBuscada);
+        const nombreEspecifico = limpiarPrefijoGenerico(asocBuscada);
+        const palabrasClave = (nombreEspecifico || asocBuscada).split(' ').filter(p => p.length > 0);
+
+        // Busca en GeoJSON: deben coincidir todas las palabras clave del nombre
         let zonas = features.filter(f => {
           const txt = normalizar(extraerTextoFeature(f));
-          return terminos.some(t => txt.includes(t));
+          if (!txt) return false;
+          // Evita tomar elementos que se llamen únicamente "plaza" o "parque" si el usuario escribió un nombre
+          if (palabrasClave.length > 0 && (txt === 'plaza' || txt === 'parque' || txt === 'losa') && nombreEspecifico !== txt) {
+            return false;
+          }
+          return palabrasClave.every(p => txt.includes(p));
         });
 
+        // Si no se encuentra en el catastro local de Cono Sur, consulta la red satelital de Tacna
         if (zonas.length === 0) {
           await buscarEnLinea(textoOriginal);
           return;
         }
 
-        const coincidenciaExacta = zonas.find(f => normalizar(extraerTextoFeature(f)) === asocBuscada);
+        // Si hay varias coincidencias, prioriza la más exacta
+        const coincidenciaExacta = zonas.find(f => {
+          const txt = normalizar(extraerTextoFeature(f));
+          return txt === asocBuscada || txt === nombreEspecifico;
+        });
         const zonaAsoc = coincidenciaExacta || zonas[0];
         const cAsoc = obtenerCoordenada(zonaAsoc);
 
         let puntoRef = cAsoc;
-        let nombreAsoc = extraerTextoFeature(zonaAsoc) || asocBuscada;
+        let nombreAsoc = extraerTextoFeature(zonaAsoc) || textoOriginal;
 
         if (mzBuscada) {
           const manzanas = features.filter(f => {
