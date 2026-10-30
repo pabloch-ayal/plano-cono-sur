@@ -341,29 +341,37 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
 // ==========================================
-    // SISTEMA DE LICENCIA (SIN PREFIJOS)
+    // SISTEMA DE LICENCIA ALFANUMÉRICO (LETRAS Y NÚMEROS)
     // ==========================================
     const NUMERO_WHATSAPP = "51939525004";
+    const ALFABETO = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"; // Caracteres sin 0, O, 1, I
 
-    // Genera un ID aleatorio de letras y números (ejemplo: 4B8Y2W)
     function crearIdAleatorio() {
-      const caracteres = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // Sin I, O, 0, 1 para evitar confusiones
       let res = "";
       for (let i = 0; i < 6; i++) {
-        res += caracteres.charAt(Math.floor(Math.random() * caracteres.length));
+        res += ALFABETO.charAt(Math.floor(Math.random() * ALFABETO.length));
       }
       return res;
     }
 
-    // Calcula la clave de 6 dígitos
+    // Algoritmo que genera una clave alfanumérica de 6 dígitos
     function generarFirma(id) {
       if (!id) return "";
       const limpio = id.toString().trim().toUpperCase();
-      let suma = 789;
+      let h1 = 5381;
+      let h2 = 0x1234567;
       for (let i = 0; i < limpio.length; i++) {
-        suma = (suma * 31 + limpio.charCodeAt(i)) % 999999;
+        const c = limpio.charCodeAt(i);
+        h1 = ((h1 << 5) + h1) ^ c;
+        h2 = ((h2 << 7) + h2) + c;
       }
-      return suma.toString().padStart(6, '0');
+      let salida = "";
+      let combinada = Math.abs(h1 ^ h2);
+      for (let i = 0; i < 6; i++) {
+        salida += ALFABETO.charAt(combinada % ALFABETO.length);
+        combinada = Math.floor(combinada / ALFABETO.length) + (limpio.charCodeAt(i % limpio.length) * 17);
+      }
+      return salida;
     }
 
     function inicializarLicencia() {
@@ -376,12 +384,13 @@
       const licGuardada = localStorage.getItem('plano_active_key');
       const claveCorrecta = generarFirma(devId);
 
+      // Verificación de clave válida o clave maestra
       if (licGuardada && (licGuardada.trim() === claveCorrecta || licGuardada.trim() === "CONOSUR2026")) {
         return true;
       }
 
       document.getElementById('deviceCode').innerText = devId;
-      const mensajeWsp = encodeURIComponent(`Hola, deseo activar el Plano Cono Sur en mi celular. Mi ID es: ${devId}`);
+      const mensajeWsp = encodeURIComponent(`Hola, deseo activar el Plano Cono Sur. Mi ID es: ${devId}`);
       document.getElementById('btnWsp').href = `https://api.whatsapp.com/send?phone=${NUMERO_WHATSAPP}&text=${mensajeWsp}`;
       document.getElementById('lockScreen').style.display = 'flex';
       return false;
@@ -400,8 +409,6 @@
         alert("Clave incorrecta. Verifica el código de tu pantalla.");
       }
     }
-
-    inicializarLicencia();
 
     inicializarLicencia();
 
