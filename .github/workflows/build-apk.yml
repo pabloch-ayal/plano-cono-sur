@@ -38,12 +38,21 @@ jobs:
         run: |
           npm install @capacitor/core @capacitor/cli @capacitor/android
 
-      - name: Inicializar proyecto Capacitor
+      - name: Generar configuración Capacitor forzando www
         run: |
-          npx cap init "Plano Cono Sur" "com.conosur.app" --web-dir "www"
+          rm -f capacitor.config.json capacitor.config.ts
+          cat <<EOF > capacitor.config.json
+          {
+            "appId": "com.conosur.app",
+            "appName": "Plano Cono Sur",
+            "webDir": "www",
+            "bundledWebRuntime": false
+          }
+          EOF
 
       - name: Agregar plataforma Android
         run: |
+          rm -rf android
           npx cap add android
 
       - name: Actualizar icono oficial de la App
