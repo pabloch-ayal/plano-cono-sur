@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Plano Cono Sur</title>
+  
   <link rel="icon" type="image/png" href="icon.png">
   <link rel="apple-touch-icon" href="icon.png">
   
@@ -372,12 +373,21 @@
       document.getElementById('inputAsoc').focus();
     }
 
-    // BÚSQUEDA SECUNDARIA EN LA RED / GOOGLE MAPS PARA ASOCIACIONES Y LUGARES DE TACNA
+    // BÚSQUEDA SECUNDARIA OPTIMIZADA
     async function buscarEnLinea(consultaOriginal) {
       const btn = document.getElementById('btnBuscar');
-      btn.innerText = "Buscando en Tacna...";
+      btn.innerText = "Buscando...";
+      
+      let textoLimpio = consultaOriginal
+        .replace(/local\s+multiusos/gi, '')
+        .replace(/asociacion\s+de\s+vivienda|asoc\s+viv|asociacion|asoc/gi, '')
+        .replace(/colegio|institucion\s+educativa|i\.?e\.?/gi, '')
+        .trim();
+
+      if (!textoLimpio) textoLimpio = consultaOriginal;
+
       try {
-        const q = encodeURIComponent(`${consultaOriginal}, Tacna, Peru`);
+        const q = encodeURIComponent(`${textoLimpio}, Tacna, Peru`);
         const url = `https://nominatim.openstreetmap.org/search?format=json&q=${q}&limit=1`;
         const res = await fetch(url);
         const data = await res.json();
@@ -386,16 +396,16 @@
           const lat = parseFloat(data[0].lat);
           const lon = parseFloat(data[0].lon);
           const nombreEncontrado = data[0].display_name.split(',')[0];
-          const info = `<b>${nombreEncontrado}</b><br><small style="color:#d93025;">(Ubicación vía Satélite - Tacna)</small><br>` +
+          const info = `<b>${nombreEncontrado}</b><br><small style="color:#d93025;">(Ubicación satelital - Tacna)</small><br>` +
                        `<a class="btn-gmaps" href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}" target="_blank">🗺️ ¿Cómo llegar? (Google Maps)</a>`;
           ubicar([lat, lon], info);
         } else {
           const linkDirectoGmaps = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(consultaOriginal + ' Tacna')}`;
-          alert(`No se encontró "${consultaOriginal}" en el plano local ni en la base satelital. Abriendo Google Maps:`);
           window.open(linkDirectoGmaps, '_system');
         }
       } catch (err) {
-        alert(`No se encontró "${consultaOriginal}" en el catastro local.`);
+        const linkDirectoGmaps = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(consultaOriginal + ' Tacna')}`;
+        window.open(linkDirectoGmaps, '_system');
       } finally {
         btn.innerText = "Buscar Predio";
       }
@@ -464,7 +474,6 @@
           return terminos.some(t => txt.includes(t));
         });
 
-        // SI NO ESTÁ EN EL PLANO DE CONO SUR, CONSULTA EN LÍNEA A TODO TACNA
         if (zonas.length === 0) {
           await buscarEnLinea(textoOriginal);
           return;
