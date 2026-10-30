@@ -25,21 +25,26 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
+      - name: Preparar carpeta web (www)
+        run: |
+          mkdir -p www
+          cp index.html www/
+          cp lotes_tacna.geojson www/
+          if [ -f "icon.png" ]; then
+            cp icon.png www/
+          fi
+
       - name: Instalar dependencias Capacitor
         run: |
           npm install @capacitor/core @capacitor/cli @capacitor/android
 
-      - name: Inicializar proyecto Capacitor (si no existe)
+      - name: Inicializar proyecto Capacitor
         run: |
-          if [ ! -f "capacitor.config.json" ] && [ ! -f "capacitor.config.ts" ]; then
-            npx cap init "Plano Cono Sur" "com.conosur.app" --web-dir "."
-          fi
+          npx cap init "Plano Cono Sur" "com.conosur.app" --web-dir "www"
 
       - name: Agregar plataforma Android
         run: |
-          if [ ! -d "android" ]; then
-            npx cap add android
-          fi
+          npx cap add android
 
       - name: Actualizar icono oficial de la App
         run: |
@@ -51,7 +56,7 @@ jobs:
         run: |
           npx cap sync android
 
-      - name: Compilar APK en modo Release / Debug
+      - name: Compilar APK
         run: |
           cd android
           chmod +x gradlew
