@@ -2,36 +2,236 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Generador de Licencias - Plano Cono Sur</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Plano Cono Sur</title>
+  
+  <link rel="icon" type="image/png" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  
   <style>
-    body { font-family: sans-serif; background: #0f172a; color: white; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-    .box { background: #1e293b; padding: 25px; border-radius: 12px; width: 320px; text-align: center; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
-    input { width: 100%; padding: 10px; margin: 10px 0; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: white; text-align: center; font-size: 16px; box-sizing: border-box; text-transform: uppercase; }
-    button { width: 100%; padding: 12px; background: #0284c7; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
-    .res { margin-top: 15px; font-size: 20px; font-weight: bold; color: #38bdf8; background: #0f172a; padding: 10px; border-radius: 6px; user-select: all; }
-  </style>
-</head>
-<body>
-  <div class="box">
-    <h3>Generador de Claves</h3>
-    <input type="text" id="idInput" placeholder="Ej: TAC-8492">
-    <button onclick="generar()">Crear Clave de Activación</button>
-    <div id="resultado" class="res">---</div>
-  </div>
-
-  <script>
-    function generar() {
-      const id = document.getElementById('idInput').value.trim().toUpperCase();
-      if (!id) return;
-      let hash = 5381;
-      const str = "CONOSUR_SALT_2026_" + id;
-      for (let i = 0; i < str.length; i++) {
-        hash = ((hash << 5) + hash) + str.charCodeAt(i);
-        hash = hash & 0xFFFFFFF;
-      }
-      const clave = "ACT-" + Math.abs(hash).toString(36).toUpperCase().padStart(6, '0');
-      document.getElementById('resultado').innerText = clave;
+    * { 
+      box-sizing: border-box; 
+      margin: 0; 
+      padding: 0; 
+      -webkit-tap-highlight-color: transparent;
     }
-  </script>
-</body>
-</html>
+    
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      position: fixed;
+    }
+
+    #map {
+      width: 100vw;
+      height: 100vh;
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 1;
+    }
+
+    .search-panel {
+      position: absolute;
+      top: 12px;
+      left: 10px;
+      right: 10px;
+      z-index: 1000;
+      background: rgba(255, 255, 255, 0.98);
+      padding: 10px;
+      border-radius: 14px;
+      box-shadow: 0 4px 18px rgba(0,0,0,0.3);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .inputs-row {
+      display: flex;
+      gap: 6px;
+      width: 100%;
+      position: relative;
+    }
+
+    .inputs-row input {
+      border: 1px solid #c2c2c2;
+      border-radius: 8px;
+      padding: 8px 6px;
+      font-size: 13px;
+      outline: none;
+      min-width: 0;
+    }
+
+    #inputAsoc { flex: 2.2; }
+    #inputMz { flex: 0.9; }
+    #inputLote { flex: 0.9; }
+
+    .inputs-row input:focus {
+      border-color: #1a73e8;
+    }
+
+    .suggestions-box {
+      position: absolute;
+      top: 42px;
+      left: 0;
+      right: 0;
+      background: white;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      max-height: 240px;
+      overflow-y: auto;
+      z-index: 1100;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+      display: none;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .suggestion-item {
+      padding: 10px 12px;
+      font-size: 13px;
+      border-bottom: 1px solid #f0f0f0;
+      cursor: pointer;
+      color: #222;
+      line-height: 1.3;
+    }
+
+    .suggestion-item:active {
+      background: #e8f0fe;
+    }
+
+    .actions-row {
+      display: flex;
+      gap: 8px;
+      width: 100%;
+    }
+
+    .btn-search {
+      flex: 1;
+      background: #1a73e8;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 10px;
+      font-weight: bold;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    .btn-clear {
+      background: #f1f3f4;
+      border: 1px solid #ccc;
+      color: #555;
+      border-radius: 8px;
+      width: 44px;
+      font-size: 18px;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    .btn-clear:active {
+      background: #e0e0e0;
+      color: #d93025;
+    }
+
+    .gps-btn {
+      position: absolute;
+      bottom: 30px;
+      right: 16px;
+      z-index: 1000;
+      background: white;
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      box-shadow: 0 3px 12px rgba(0,0,0,0.35);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      border: none;
+      cursor: pointer;
+      font-size: 22px;
+    }
+
+    .layer-toggle-btn {
+      position: absolute;
+      bottom: 88px;
+      right: 16px;
+      z-index: 1000;
+      background: white;
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      box-shadow: 0 3px 12px rgba(0,0,0,0.35);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      border: none;
+      cursor: pointer;
+      font-size: 20px;
+    }
+
+    .btn-gmaps {
+      display: block;
+      margin-top: 8px;
+      background: #34a853;
+      color: white !important;
+      text-align: center;
+      text-decoration: none;
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-weight: bold;
+      font-size: 13px;
+    }
+
+    /* PANTALLA DE BLOQUEO POR LICENCIA */
+    #lockScreen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: #111827;
+      color: #f9fafb;
+      z-index: 99999;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 24px;
+      text-align: center;
+    }
+
+    .lock-box {
+      background: #1f2937;
+      border-radius: 16px;
+      padding: 24px 20px;
+      max-width: 360px;
+      width: 100%;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+      border: 1px solid #374151;
+    }
+
+    .lock-title {
+      font-size: 20px;
+      font-weight: bold;
+      color: #38bdf8;
+      margin-bottom: 6px;
+    }
+
+    .lock-desc {
+      font-size: 13px;
+      color: #9ca3af;
+      margin-bottom: 16px;
+    }
+
+    .id-container {
+      background: #111827;
+      border: 1px dashed #4b5563;
+      padding: 10px;
+      border-radius: 8px;
