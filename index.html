@@ -242,14 +242,35 @@
     let marcador = null;
     let catalogoLugares = [];
 
+    // Normalizador que limpia tildes, signos y unifica abreviaturas comunes en catastro
     function normalizar(texto) {
       if (!texto) return '';
-      return texto.toString()
+      let t = texto.toString()
         .toLowerCase()
         .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
         .replace(/[^a-z0-9]/g, " ")
         .replace(/\s+/g, " ")
         .trim();
+
+      // Diccionario de equivalencias y sinónimos para catastro
+      t = t.replace(/\b(asoc|asociacion|asoc viv|asoc de viv|asociacion de vivienda)\b/g, 'asoc')
+           .replace(/\b(junta vecinal|jv|junta vec)\b/g, 'jv')
+           .replace(/\b(colegio|institucion educativa|escuela|iep|i e)\b/g, 'ie')
+           .replace(/\b(posta|posta medica|puesto de salud|centro de salud|hospital|minsa)\b/g, 'salud')
+           .replace(/\b(comisaria|comisaria pnp|puesto policial|pnp)\b/g, 'comisaria')
+           .replace(/\b(parque|plazuela|alameda|losa|campo deportivo)\b/g, 'parque')
+           .replace(/\b(avenida|avda)\b/g, 'av')
+           .replace(/\b(calle|clle)\b/g, 'ca')
+           .replace(/\b(pasaje|psje)\b/g, 'pje')
+           .replace(/\b(jiron)\b/g, 'jr')
+           .replace(/\b(santa)\b/g, 'sta')
+           .replace(/\b(santo|san)\b/g, 'san')
+           .replace(/\b(senor|sr)\b/g, 'senor')
+           .replace(/\b(virgen)\b/g, 'v')
+           .replace(/\s+/g, " ")
+           .trim();
+
+      return t;
     }
 
     function distancia(c1, c2) {
@@ -301,31 +322,42 @@
     const inputAsoc = document.getElementById('inputAsoc');
     const boxSuggestions = document.getElementById('suggestions');
 
-    // Desglosa prefijos genéricos de equipamiento urbano
-    function limpiarPrefijoGenerico(texto) {
-      return texto
-        .replace(/^(plaza|parque|plazuela|alameda|losa|campo deportivo)\s+/i, '')
-        .replace(/^(colegio|escuela|institucion educativa|i\s*e|i\s*e\s*p)\s+/i, '')
-        .replace(/^(comisaria|comisaria pnp|pnp|puesto policial)\s+/i, '')
-        .replace(/^(centro de salud|puesto de salud|posta medica|posta|hospital)\s+/i, '')
-        .replace(/^(asociacion de vivienda|asoc viv|asociacion|asoc|junta vecinal|jv)\s+/i, '')
-        .replace(/^(mercado|complejo|local comunal|local multiusos|parroquia|iglesia)\s+/i, '')
-        .trim();
+    // Extrae palabras significativas descartando conectores y tipos genéricos
+    function extraerTerminosBusqueda(texto) {
+      const conectores = ['de', 'del', 'la', 'las', 'el', 'los', 'y', 'en', 'con', 'a', 'asoc', 'jv', 'ca', 'av', 'pje', 'jr'];
+      return normalizar(texto)
+        .split(' ')
+        .filter(w => w.length > 1 && !conectores.includes(w));
+    }
+
+    // Comprobador flexible de coincidencia (por palabra o prefijo de 4+ caracteres)
+    function coincideFlexible(textoDestino, palabrasBuscadas) {
+      if (!palabrasBuscadas || palabrasBuscadas.length === 0) return true;
+      const partesDestino = textoDestino.split(' ');
+
+      return palabrasBuscadas.every(pb => {
+        if (textoDestino.includes(pb)) return true;
+        // Permite que palabras largas coincidan si están abreviadas con su raíz (ej. "carvajal" -> "carv" o "c")
+        if (pb.length >= 4) {
+          const raiz = pb.substring(0, 4);
+          const inicial = pb[0];
+          return partesDestino.some(pd => pd.startsWith(raiz) || pd === inicial);
+        }
+        return false;
+      });
     }
 
     inputAsoc.addEventListener('input', () => {
-      const val = normalizar(inputAsoc.value);
-      if (val.length < 2) {
+      const val = inputAsoc.value.trim();
+      const palabras = extraerTerminosBusqueda(val);
+      if (palabras.length === 0) {
         boxSuggestions.style.display = 'none';
         return;
       }
 
-      const valLimpio = limpiarPrefijoGenerico(val);
-      const palabras = (valLimpio || val).split(' ').filter(p => p.length > 0);
-
       const coincidencias = catalogoLugares.filter(item => {
         const norm = normalizar(item.nombreOriginal);
-        return palabras.every(p => norm.includes(p));
+        return coincideFlexible(norm, palabras);
       }).slice(0, 35);
 
       if (coincidencias.length === 0) {
@@ -343,7 +375,7 @@
       inputAsoc.value = nombre;
       boxSuggestions.style.display = 'none';
       const norm = normalizar(nombre);
-      const esDirecto = /colegio|i e|ie|iep|parque|plaza|comunal|mercado|calle|av|avenida|pje|jr|salud|posta|comisaria/i.test(norm);
+      const esDirecto = /\b(ie|parque|plaza|comunal|mercado|ca|av|pje|jr|salud|comisaria)\b/.test(norm);
       if (esDirecto) {
         ejecutarBusqueda();
       } else {
@@ -369,6 +401,7 @@
       document.getElementById('inputAsoc').focus();
     }
 
+    // Búsqueda satelital delimitada estrictamente al cono urbano de Tacna (evita provincias altas como Candarave)
     async function buscarEnLinea(consultaOriginal) {
       const btn = document.getElementById('btnBuscar');
       btn.innerText = "Buscando...";
@@ -376,14 +409,18 @@
       let textoLimpio = consultaOriginal
         .replace(/local\s+multiusos/gi, '')
         .replace(/asociacion\s+de\s+vivienda|asoc\s+viv|asociacion|asoc/gi, '')
+        .replace(/junta\s+vecinal|jv/gi, '')
         .replace(/colegio|institucion\s+educativa|i\.?e\.?/gi, '')
         .trim();
 
       if (!textoLimpio) textoLimpio = consultaOriginal;
 
       try {
-        const q = encodeURIComponent(`${textoLimpio}, Tacna, Peru`);
-        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${q}&limit=1`;
+        // Bounding box estricto: solo Tacna ciudad y Gregorio Albarracín
+        const viewbox = "-70.35,-17.90,-70.15,-18.15";
+        const q = encodeURIComponent(`${textoLimpio}, Coronel Gregorio Albarracin Lanchipa, Tacna, Peru`);
+        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${q}&viewbox=${viewbox}&bounded=1&limit=1`;
+        
         const res = await fetch(url);
         const data = await res.json();
 
@@ -395,11 +432,11 @@
                        `<a class="btn-gmaps" href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}" target="_blank">🗺️ ¿Cómo llegar? (Google Maps)</a>`;
           ubicar([lat, lon], info);
         } else {
-          const linkDirectoGmaps = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(consultaOriginal + ' Tacna')}`;
+          const linkDirectoGmaps = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(consultaOriginal + ' Gregorio Albarracin Tacna')}`;
           window.open(linkDirectoGmaps, '_system');
         }
       } catch (err) {
-        const linkDirectoGmaps = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(consultaOriginal + ' Tacna')}`;
+        const linkDirectoGmaps = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(consultaOriginal + ' Gregorio Albarracin Tacna')}`;
         window.open(linkDirectoGmaps, '_system');
       } finally {
         btn.innerText = "Buscar Predio";
@@ -461,34 +498,55 @@
         }
       }
 
-      // 2. BÚSQUEDA POR LUGAR / CALLE / EQUIPAMIENTO / ASOCIACIÓN
+      // 2. BÚSQUEDA POR LUGAR / EQUIPAMIENTO / ASOCIACIÓN
       if (asocBuscada) {
-        const nombreEspecifico = limpiarPrefijoGenerico(asocBuscada);
-        const palabrasClave = (nombreEspecifico || asocBuscada).split(' ').filter(p => p.length > 0);
+        const palabrasClave = extraerTerminosBusqueda(textoOriginal);
 
-        // Busca en GeoJSON: deben coincidir todas las palabras clave del nombre
+        const buscaEspacioPublico = /\b(plaza|parque)\b/.test(asocBuscada);
+        const buscaEducacion = /\bie\b/.test(asocBuscada);
+
         let zonas = features.filter(f => {
           const txt = normalizar(extraerTextoFeature(f));
           if (!txt) return false;
-          // Evita tomar elementos que se llamen únicamente "plaza" o "parque" si el usuario escribió un nombre
-          if (palabrasClave.length > 0 && (txt === 'plaza' || txt === 'parque' || txt === 'losa') && nombreEspecifico !== txt) {
+
+          // Si el usuario especificó plaza o parque, descarta vías
+          if (buscaEspacioPublico && (txt.startsWith('pje') || txt.startsWith('ca ') || txt.startsWith('av ') || txt.startsWith('jr '))) {
             return false;
           }
-          return palabrasClave.every(p => txt.includes(p));
+
+          // Si el usuario especificó colegio/IE, descarta vías
+          if (buscaEducacion && (txt.startsWith('ca ') || txt.startsWith('pje'))) {
+            return false;
+          }
+
+          // Evita tomar registros que se llamen genéricamente solo "plaza" o "parque"
+          if (palabrasClave.length > 0 && (txt === 'plaza' || txt === 'parque' || txt === 'losa')) {
+            return false;
+          }
+
+          return coincideFlexible(txt, palabrasClave);
         });
 
-        // Si no se encuentra en el catastro local de Cono Sur, consulta la red satelital de Tacna
+        // Si no se encuentra en el catastro local, consultar el satélite delimitado en Tacna
         if (zonas.length === 0) {
           await buscarEnLinea(textoOriginal);
           return;
         }
 
-        // Si hay varias coincidencias, prioriza la más exacta
-        const coincidenciaExacta = zonas.find(f => {
-          const txt = normalizar(extraerTextoFeature(f));
-          return txt === asocBuscada || txt === nombreEspecifico;
+        // Ordenar dando prioridad a la coincidencia con mayor similitud
+        zonas.sort((a, b) => {
+          const txtA = normalizar(extraerTextoFeature(a));
+          const txtB = normalizar(extraerTextoFeature(b));
+          if (buscaEspacioPublico) {
+            const esPlazaA = txtA.includes('plaza') || txtA.includes('parque');
+            const esPlazaB = txtB.includes('plaza') || txtB.includes('parque');
+            if (esPlazaA && !esPlazaB) return -1;
+            if (!esPlazaA && esPlazaB) return 1;
+          }
+          return txtA.length - txtB.length;
         });
-        const zonaAsoc = coincidenciaExacta || zonas[0];
+
+        const zonaAsoc = zonas[0];
         const cAsoc = obtenerCoordenada(zonaAsoc);
 
         let puntoRef = cAsoc;
